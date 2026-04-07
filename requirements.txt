@@ -1,0 +1,14 @@
+chromadb
+fastapi
+google-genai
+langchain-core
+langgraph
+matplotlib
+numpy
+pandas
+Pillow
+pydantic
+pytz
+qstrader
+scipy
+yfinance
