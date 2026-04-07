@@ -36,6 +36,7 @@ GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_LABEL = "alpha_search"
 RAG_DB_PATH = "./chroma_db"
 RAG_COLLECTION = "alpha_factors"
+RAG_SOURCE_CSV = "./alpha_factors.csv"
 RAG_TOP_K = 1
 GP_NPOP = 20
 GP_SEED = 42
@@ -127,6 +128,43 @@ def rag_search_tool(user_message: str, top_k: int, db_path: str, collection: str
         err = (proc.stderr or "").strip()
         if proc.returncode != 0:
             return f"RAG query failed (exit={proc.returncode}).\n{err or output}"
+
+        # Auto-ingest once when collection is empty, then retry the query.
+        if "Collection is empty" in output:
+            csv_path = os.path.join(os.path.dirname(__file__), "alpha_factors.csv")
+            ingest_cmd = [
+                sys.executable,
+                script_path,
+                "--db",
+                db_path,
+                "--csv",
+                csv_path if os.path.exists(csv_path) else RAG_SOURCE_CSV,
+                "--collection",
+                collection,
+                "ingest",
+            ]
+            ingest_proc = subprocess.run(ingest_cmd, capture_output=True, text=True, check=False)
+            ingest_output = (ingest_proc.stdout or "").strip()
+            ingest_err = (ingest_proc.stderr or "").strip()
+            if ingest_proc.returncode != 0:
+                return (
+                    f"RAG collection is empty and auto-ingest failed (exit={ingest_proc.returncode}).\n"
+                    f"{ingest_err or ingest_output}"
+                )
+
+            retry_proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            retry_output = (retry_proc.stdout or "").strip()
+            retry_err = (retry_proc.stderr or "").strip()
+            if retry_proc.returncode != 0:
+                return f"RAG query failed after auto-ingest (exit={retry_proc.returncode}).\n{retry_err or retry_output}"
+
+            retry_payload = retry_output
+            if retry_err:
+                retry_payload = f"{retry_output}\n\n[stderr]\n{retry_err}".strip()
+            if ingest_err:
+                retry_payload = f"{retry_payload}\n\n[ingest_stderr]\n{ingest_err}".strip()
+            return retry_payload
+
         if err:
             return f"{output}\n\n[stderr]\n{err}".strip()
         return output
