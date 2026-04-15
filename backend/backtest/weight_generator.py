@@ -4,8 +4,12 @@ import numpy as np
 import pytz
 
 from qstrader.alpha_model.alpha_model import AlphaModel
-from Alphas.alpha101 import Alphas101
-from Alphas.alphagp import AlphaGP
+try:
+    from backend.Alphas.alpha101 import Alphas101
+    from backend.Alphas.alphagp import AlphaGP
+except ModuleNotFoundError:
+    from Alphas.alpha101 import Alphas101
+    from Alphas.alphagp import AlphaGP
 
 
 class Model(AlphaModel):

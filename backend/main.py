@@ -10,7 +10,12 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from agent import AgentState, build_multi_agent_graph
+try:
+    # Works when launched from project root: uvicorn backend.main:app --reload
+    from backend.agent import AgentState, build_multi_agent_graph
+except ModuleNotFoundError:
+    # Works when launched inside backend/: uvicorn main:app --reload
+    from agent import AgentState, build_multi_agent_graph
 
 
 app = FastAPI(title="Quant Evaluation API", version="1.0.0")

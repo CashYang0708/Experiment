@@ -2,7 +2,10 @@ import numpy as np
 import pandas as pd
 from numpy import log
 from numpy import sign
-from utils import *
+try:
+    from backend.utils import *
+except ModuleNotFoundError:
+    from utils import *
 
 
 class Alphas101():

@@ -27,7 +27,7 @@ from typing import Any, Dict, List
 DEFAULT_COLLECTION = "alpha_factors"
 DEFAULT_EMBED_MODEL = "gemini-embedding-001"
 # Put your Gemini API key here if you want to avoid environment variables.
-GEMINI_API_KEY = "your api key"
+GEMINI_API_KEY = "AIzaSyB1dlz_SePTDmWrL7Q_YFAikvARJRIpjdA"
 
 
 @dataclass

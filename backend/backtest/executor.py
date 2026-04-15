@@ -4,7 +4,10 @@ import pytz
 import matplotlib
 from PIL import Image
 from typing import Dict
-from stock_data import store_to_csv, get_three_year, get_ten_year
+try:
+    from backend.stock_data import store_to_csv, get_three_year, get_ten_year
+except ModuleNotFoundError:
+    from stock_data import store_to_csv, get_three_year, get_ten_year
 from qstrader.asset.equity import Equity
 from qstrader.asset.universe.dynamic import DynamicUniverse
 from qstrader.data.backtest_data_handler import BacktestDataHandler

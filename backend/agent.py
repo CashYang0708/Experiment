@@ -31,7 +31,7 @@ from google import genai
 
 
 # Optional: hardcode key if you do not want env vars.
-GEMINI_API_KEY = "your api key"
+GEMINI_API_KEY = "AIzaSyB1dlz_SePTDmWrL7Q_YFAikvARJRIpjdA"
 GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_LABEL = "alpha_search"
 RAG_DB_PATH = "./chroma_db"
@@ -228,9 +228,12 @@ def gp_run_tool(
 def run_backtest_tool(alpha_expression: str, period: str = "10y") -> str:
     """Run backtest for a given alpha expression via backtest/executor.py."""
     try:
-        from backtest.executor import GpTemplate
-    except Exception as exc:
-        return f"Backtest failed: cannot import GpTemplate ({exc})"
+        from backend.backtest.executor import GpTemplate
+    except Exception:
+        try:
+            from backtest.executor import GpTemplate
+        except Exception as exc:
+            return f"Backtest failed: cannot import GpTemplate ({exc})"
 
     try:
         result = GpTemplate(alpha_expression, period=period).run()
@@ -243,9 +246,12 @@ def run_backtest_tool(alpha_expression: str, period: str = "10y") -> str:
 def run_alpha_backtest_tool(alpha_name: str) -> str:
     """Run backtest for an Alpha101 model name via backtest/executor.py."""
     try:
-        from backtest.executor import Template
-    except Exception as exc:
-        return f"Backtest failed: cannot import Template ({exc})"
+        from backend.backtest.executor import Template
+    except Exception:
+        try:
+            from backtest.executor import Template
+        except Exception as exc:
+            return f"Backtest failed: cannot import Template ({exc})"
 
     try:
         normalized_alpha_name = normalize_alpha101_name(alpha_name)

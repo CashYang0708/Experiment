@@ -5,12 +5,12 @@ import argparse
 import json
 
 try:
-    import fitness_function as external_fitness
+    import backend.fitness_function as external_fitness
 except ImportError:
     external_fitness = None
 
 try:
-    from backtest.executor import GpTemplate
+    from backend.backtest.executor import GpTemplate
 except Exception:
     GpTemplate = None
 

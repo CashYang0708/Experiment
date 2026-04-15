@@ -1,3 +1,9 @@
-venv
-chroma_db/
-stock_data/
+backend/venv
+backend/chroma_db/
+backend/stock_data/
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+backend/.DS_Store
+frontend/.DS_Store
+.DS_Store
