@@ -31,7 +31,7 @@ from google import genai
 
 
 # Optional: hardcode key if you do not want env vars.
-GEMINI_API_KEY = "AIzaSyB1dlz_SePTDmWrL7Q_YFAikvARJRIpjdA"
+GEMINI_API_KEY = "your api key"
 GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_LABEL = "alpha_search"
 RAG_DB_PATH = "./chroma_db"
