@@ -31,8 +31,8 @@ from google import genai
 
 
 # Optional: hardcode key if you do not want env vars.
-GEMINI_API_KEY = "your api key"
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_API_KEY = os.get("GEMINI_API_KEY", "").strip()
+GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_LABEL = "alpha_search"
 RAG_DB_PATH = "./chroma_db"
 RAG_COLLECTION = "alpha_factors"
@@ -65,7 +65,7 @@ class AgentState(TypedDict):
 
 
 def orchestrator_classify(message: str) -> str:
-    api_key = GEMINI_API_KEY.strip() or os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = GEMINI_API_KEY
     if not api_key:
         return DEFAULT_LABEL
 
@@ -432,11 +432,89 @@ def normalize_alpha101_name(alpha_name: str) -> str:
 def parse_backtest_metrics(backtest_output: str) -> Optional[dict]:
     try:
         obj = json.loads(backtest_output)
+        if isinstance(obj, dict) and "sharpe" in obj:
+            return obj
     except Exception:
-        return None
-    if isinstance(obj, dict) and "sharpe" in obj:
-        return obj
+        pass
+
+    # backtesting_agent may wrap JSON in labeled text blocks.
+    decoder = json.JSONDecoder()
+    idx = 0
+    while idx < len(backtest_output):
+        brace_idx = backtest_output.find("{", idx)
+        if brace_idx == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(backtest_output, brace_idx)
+            if isinstance(obj, dict) and "sharpe" in obj:
+                return obj
+            idx = end
+        except Exception:
+            idx = brace_idx + 1
     return None
+
+
+def _deterministic_evaluation_from_metrics(backtest_metrics: Optional[dict], reason: str = "") -> str:
+    lines = [
+        "# Evaluation Report",
+        "## Data Source",
+        "backtesting_agent output only",
+    ]
+
+    if not backtest_metrics:
+        lines.extend(
+            [
+                "## Backtest Data Availability",
+                "- unavailable or non-JSON backtest output",
+                "## Performance Assessment",
+                "- cannot assess performance because key metrics are missing",
+                "## Risk Assessment",
+                "- cannot assess risk because key metrics are missing",
+                "## Recommendation",
+                "- rerun backtest and ensure sharpe/cum_returns/max_drawdown_pct are present",
+            ]
+        )
+        if reason:
+            lines.append(f"- note: fallback reason = {reason}")
+        return "\n".join(lines)
+
+    sharpe = backtest_metrics.get("sharpe")
+    cum_returns = backtest_metrics.get("cum_returns")
+    max_drawdown_pct = backtest_metrics.get("max_drawdown_pct")
+    period = backtest_metrics.get("period", "unknown")
+
+    performance_note = "metrics available"
+    if isinstance(cum_returns, (int, float)):
+        if cum_returns > 0:
+            performance_note = "positive cumulative return"
+        elif cum_returns < 0:
+            performance_note = "negative cumulative return"
+        else:
+            performance_note = "flat cumulative return"
+
+    risk_note = "drawdown metric available"
+    if isinstance(max_drawdown_pct, (int, float)):
+        risk_note = "moderate-to-high drawdown" if max_drawdown_pct >= 20 else "controlled drawdown"
+
+    lines.extend(
+        [
+            "## Backtest Data Availability",
+            "- available",
+            f"- period: {period}",
+            "## Performance Assessment",
+            f"- sharpe: {sharpe}",
+            f"- cum_returns: {cum_returns}",
+            f"- assessment: {performance_note}",
+            "## Risk Assessment",
+            f"- max_drawdown_pct: {max_drawdown_pct}",
+            f"- assessment: {risk_note}",
+            "## Recommendation",
+            "- validate stability across additional periods before production use",
+        ]
+    )
+    if reason:
+        lines.append(f"- note: fallback reason = {reason}")
+    return "\n".join(lines)
 
 
 def should_continue_tuning(score_history: list[float], attempt: int) -> bool:
@@ -473,24 +551,7 @@ def generate_evaluation_report(state: AgentState) -> str:
     backtest_metrics = parse_backtest_metrics(backtest_summary)
 
     if not api_key:
-        lines = [
-            "# Evaluation Report",
-            "## Data Source",
-            "backtesting_agent output only",
-        ]
-        if backtest_metrics:
-            lines.extend(
-                [
-                    "## Backtest Metrics",
-                    f"- sharpe: {backtest_metrics.get('sharpe')}",
-                    f"- max_drawdown_pct: {backtest_metrics.get('max_drawdown_pct')}",
-                    f"- cum_returns: {backtest_metrics.get('cum_returns')}",
-                ]
-            )
-        else:
-            lines.extend(["## Backtest Metrics", "- unavailable or non-JSON output"])
-        lines.extend(["## Conclusion", "LLM unavailable, returned deterministic summary."])
-        return "\n".join(lines)
+        return _deterministic_evaluation_from_metrics(backtest_metrics, reason="missing_api_key")
 
     payload = {
         "backtest_output": backtest_summary,
@@ -517,14 +578,9 @@ def generate_evaluation_report(state: AgentState) -> str:
         text = (response.text or "").strip()
         if text:
             return text
-    except Exception:
-        pass
-
-    return (
-        "# Evaluation Report\n"
-        "Data Source: backtesting_agent output only\n"
-        "Backtest summary present but LLM report generation failed."
-    )
+        return _deterministic_evaluation_from_metrics(backtest_metrics, reason="empty_llm_response")
+    except Exception as exc:
+        return _deterministic_evaluation_from_metrics(backtest_metrics, reason=f"llm_error:{exc}")
 
 
 def alpha_search_agent_node(state: AgentState) -> AgentState:

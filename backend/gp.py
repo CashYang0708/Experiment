@@ -7,7 +7,10 @@ import json
 try:
     import backend.fitness_function as external_fitness
 except ImportError:
-    external_fitness = None
+    try:
+        import fitness_function as external_fitness
+    except ImportError:
+        external_fitness = None
 
 try:
     from backend.backtest.executor import GpTemplate
@@ -251,6 +254,7 @@ def get_fitness_function(name):
     """Resolve fitness function by name from local or external registry."""
     local_registry = {
         "correlation_fitness": correlation_fitness,
+        "pearson_fitness": correlation_fitness,
     }
 
     if name in local_registry:
