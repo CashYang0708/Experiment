@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
@@ -112,7 +114,13 @@ function App() {
             >
               <div className="avatar">{message.role === "assistant" ? "AI" : "ME"}</div>
               <div className="bubble-content">
-                <p>{message.content}</p>
+                {message.role === "assistant" ? (
+                  <div className="markdown-content">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p>{message.content}</p>
+                )}
                 <span>{message.time}</span>
               </div>
             </article>
