@@ -98,7 +98,7 @@ function App() {
       <div className="ambient ambient-right" />
 
       <header className="top-bar">
-        <h1>Companion Chat</h1>
+        <h1>Alpha Mining</h1>
         <button type="button" className="new-chat-btn" onClick={() => setMessages(starterMessages)}>
           New Chat
         </button>
@@ -128,13 +128,13 @@ function App() {
         </section>
 
         <footer className="composer-wrap">
-          <div className="tips" aria-hidden="true">
+          {/* <div className="tips" aria-hidden="true">
             {placeholderTips.map((tip) => (
               <button key={tip} type="button" onClick={() => setDraft(tip)}>
                 {tip}
               </button>
             ))}
-          </div>
+          </div> */}
 
           <div className="composer">
             <textarea
