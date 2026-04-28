@@ -225,7 +225,12 @@ def gp_run_tool(
 
 
 @tool("run_backtest")
-def run_backtest_tool(alpha_expression: str, period: str = "10y") -> str:
+def run_backtest_tool(
+    alpha_expression: str,
+    period: str = "10y",
+    index_symbol: str = "^GSPC",
+    output_stock_id: str = "S&P500",
+) -> str:
     """Run backtest for a given alpha expression via backtest/executor.py."""
     try:
         from backend.backtest.executor import GpTemplate
@@ -236,14 +241,24 @@ def run_backtest_tool(alpha_expression: str, period: str = "10y") -> str:
             return f"Backtest failed: cannot import GpTemplate ({exc})"
 
     try:
-        result = GpTemplate(alpha_expression, period=period).run()
+        result = GpTemplate(
+            alpha_expression,
+            period=period,
+            index_symbol=index_symbol,
+            output_stock_id=output_stock_id,
+        ).run()
         return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
         return f"Backtest failed: {exc}"
 
 
 @tool("run_alpha_backtest")
-def run_alpha_backtest_tool(alpha_name: str) -> str:
+def run_alpha_backtest_tool(
+    alpha_name: str,
+    period: str = "3y",
+    index_symbol: str = "^GSPC",
+    output_stock_id: str = "S&P500",
+) -> str:
     """Run backtest for an Alpha101 model name via backtest/executor.py."""
     try:
         from backend.backtest.executor import Template
@@ -255,7 +270,12 @@ def run_alpha_backtest_tool(alpha_name: str) -> str:
 
     try:
         normalized_alpha_name = normalize_alpha101_name(alpha_name)
-        result = Template(normalized_alpha_name).run()
+        result = Template(
+            normalized_alpha_name,
+            period=period,
+            index_symbol=index_symbol,
+            output_stock_id=output_stock_id,
+        ).run()
         # Template returns an image object, which cannot be JSON serialized.
         if isinstance(result, dict) and "image" in result:
             result = {k: v for k, v in result.items() if k != "image"}
@@ -273,7 +293,7 @@ def adjust_backtest_period_tool(
 ) -> str:
     """Ask LLM to decide if metrics are extreme and whether to retest on another period."""
     api_key = GEMINI_API_KEY.strip() or os.getenv("GEMINI_API_KEY", "").strip()
-    period_order = ["10y", "5y", "3y"]
+    period_order = ["3y", "5y", "10y"]
     default_next = current_period
     if current_period in period_order:
         idx = period_order.index(current_period)
@@ -548,6 +568,7 @@ def generate_evaluation_report(state: AgentState) -> str:
     api_key = GEMINI_API_KEY.strip() or os.getenv("GEMINI_API_KEY", "").strip()
 
     backtest_summary = state.get("backtest_output", "")
+    best_alpha = state.get("best_alpha", "")
     backtest_metrics = parse_backtest_metrics(backtest_summary)
 
     if not api_key:
@@ -556,19 +577,21 @@ def generate_evaluation_report(state: AgentState) -> str:
     payload = {
         "backtest_output": backtest_summary,
         "backtest_metrics": backtest_metrics,
+        "best_alpha": best_alpha,
     }
 
     prompt = (
-        "You are an evaluation agent for alpha performance assessment.\n"
-        "Use ONLY the backtesting data provided in payload.\n"
-        "Do NOT reference route labels, RAG output, GP output, user intent, or alpha metadata.\n"
-        "Generate a concise report with sections:\n"
-        "1) Backtest Data Availability\n"
-        "2) Performance Assessment\n"
-        "3) Risk Assessment\n"
-        "4) Recommendation\n"
-        "Keep the report practical and avoid hallucinating missing metrics.\n"
-        "If metrics are missing, explicitly say unavailable.\n\n"
+        "你是一個量化研究報告產出人員用來評估alpha的表現\n"
+        "評估標準只能使用回測結果的數值.\n"
+        "報表不需要包含 route labels使用者的意圖, 或是 alpha的metadata.\n"
+        "產生的報表需要包含\n"
+        "1) 回測資料的解說\n"
+        "2) 表現評估\n"
+        "3) 風險評估\n"
+        "4) 建議\n",
+        "5) 產出或搜尋到的的alpha表達式子\n",
+        "報告應保持實用性，避免臆測缺少的指標\n"
+        "報告要用繁體中文產出\n\n"
         f"Payload:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 

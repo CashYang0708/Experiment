@@ -5,6 +5,13 @@ import sys
 import os
 from datetime import date
 
+def get_stock_data(stock_id: str, time_period: int):
+    end_time = datetime.strptime('2025-12-31', '%Y-%m-%d')
+    time_delta_obj = timedelta(days=365 * time_period)
+    start_time = (end_time - time_delta_obj).strftime('%Y-%m-%d')
+    data = yf.download(stock_id, start=start_time, end=end_time.strftime('%Y-%m-%d'), interval="1d").dropna()
+    return data
+
 def get_one_year(stock_id: str):
     # Get the stock data from Yahoo Finance from one year ago to today  
     today = date.today()
@@ -68,26 +75,27 @@ def store_to_csv(stock_id: str, time_period: str, data: dict):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print("Usage: python stock_data.py <stock_id> <time_period>")
+    if len(sys.argv) != 2:
+        print("Usage: python stock_data.py <time_period>")
         print("Time periods: 1year, 3year, 5year, 10year")
         sys.exit(1)
-    
-    stock_id = sys.argv[1]
-    time_period = sys.argv[2].lower()
-    period_function_mapping = {
-        "1year": get_one_year,
-        "3year": get_three_year,
-        "5year": get_five_year,
-        "10year": get_ten_year
+
+    stock_id = "^GSPC"
+    output_stock_id = "S&P500"
+    time_period = sys.argv[1].lower()
+    period_year_mapping = {
+        "1year": 1,
+        "3year": 3,
+        "5year": 5,
+        "10year": 10
     }
 
-    if time_period not in period_function_mapping:
-        print(f"Invalid time period. Choose from: {', '.join(period_function_mapping.keys())}")
+    if time_period not in period_year_mapping:
+        print(f"Invalid time period. Choose from: {', '.join(period_year_mapping.keys())}")
         sys.exit(1)
     try:
-        data = period_function_mapping[time_period](stock_id)
-        store_to_csv(stock_id, time_period, data)
+        data = get_stock_data(stock_id, period_year_mapping[time_period])
+        store_to_csv(output_stock_id, time_period, data)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
