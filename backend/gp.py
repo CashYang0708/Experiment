@@ -1,6 +1,8 @@
 import random
 import copy
+import os
 import numpy as np
+import pandas as pd
 import argparse
 import json
 
@@ -317,16 +319,89 @@ def run_gp_from_query(
     random.seed(seed)
     np.random.seed(seed)
 
-    n = 240
-    # Synthetic market-like matrix: [high, low, open, close, volume]
-    base = np.random.normal(0, 1, (n, 5))
-    base[:, 0] = np.abs(base[:, 0]) + 100  # high
-    base[:, 1] = base[:, 0] - np.abs(np.random.normal(0, 0.5, n))  # low
-    base[:, 2] = base[:, 1] + np.abs(np.random.normal(0, 0.3, n))  # open
-    base[:, 3] = base[:, 1] + np.abs(np.random.normal(0, 0.6, n))  # close
-    base[:, 4] = np.abs(np.random.normal(1e6, 2e5, n))  # volume
+    # Try to load real S&P500 10-year CSV from workspace stock_data.
+    csv_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "stock_data", "S&P500_10year.csv"))
+    base = None
+    forward_return = None
 
-    forward_return = np.random.normal(0, 0.02, n)
+    if os.path.exists(csv_path):
+        try:
+            df = pd.read_csv(csv_path)
+
+            def find_col(df, *names):
+                cols = {c.lower(): c for c in df.columns}
+                for name in names:
+                    key = name.lower()
+                    if key in cols:
+                        return cols[key]
+                # try contains
+                for c in df.columns:
+                    if any(k in c.lower() for k in names):
+                        return c
+                return None
+
+            high_col = find_col(df, 'high')
+            low_col = find_col(df, 'low')
+            open_col = find_col(df, 'open')
+            close_col = find_col(df, 'close', 'adj close', 'adj_close')
+            vol_col = find_col(df, 'volume', 'vol')
+
+            # If we couldn't find a close column, fall back to any numeric column
+            if close_col is None:
+                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                if numeric_cols:
+                    close_col = numeric_cols[-1]
+
+            if close_col is not None:
+                n = len(df)
+                base = np.zeros((n, 5), dtype=float)
+
+                # fill columns, falling back to close if a specific column is missing
+                close_vals = df[close_col].astype(float).to_numpy()
+                base[:, 3] = close_vals
+
+                if high_col in df.columns:
+                    base[:, 0] = df[high_col].astype(float).to_numpy()
+                else:
+                    base[:, 0] = close_vals
+
+                if low_col in df.columns:
+                    base[:, 1] = df[low_col].astype(float).to_numpy()
+                else:
+                    base[:, 1] = close_vals
+
+                if open_col in df.columns:
+                    base[:, 2] = df[open_col].astype(float).to_numpy()
+                else:
+                    base[:, 2] = close_vals
+
+                if vol_col in df.columns:
+                    try:
+                        base[:, 4] = df[vol_col].astype(float).to_numpy()
+                    except Exception:
+                        base[:, 4] = np.zeros(n)
+                else:
+                    base[:, 4] = np.zeros(n)
+
+                # forward return: next-period pct change of close, last value set to 0
+                forward_return = np.concatenate([ (close_vals[1:] / close_vals[:-1] - 1.0), np.array([0.0]) ])
+
+        except Exception:
+            base = None
+
+    # Fallback to synthetic data when CSV not available or parsing failed
+    if base is None:
+        n = 240
+        # Synthetic market-like matrix: [high, low, open, close, volume]
+        base = np.random.normal(0, 1, (n, 5))
+        base[:, 0] = np.abs(base[:, 0]) + 100  # high
+        base[:, 1] = base[:, 0] - np.abs(np.random.normal(0, 0.5, n))  # low
+        base[:, 2] = base[:, 1] + np.abs(np.random.normal(0, 0.3, n))  # open
+        base[:, 3] = base[:, 1] + np.abs(np.random.normal(0, 0.6, n))  # close
+        base[:, 4] = np.abs(np.random.normal(1e6, 2e5, n))  # volume
+
+        forward_return = np.random.normal(0, 0.02, n)
+
     alpha_init = parse_alpha_expression("close")
 
     fitness_fn = get_fitness_function(fitness_name)

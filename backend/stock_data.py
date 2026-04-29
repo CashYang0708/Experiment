@@ -57,20 +57,56 @@ def store_to_csv(stock_id: str, time_period: str, data: dict):
     # Reset index to make Date a regular column
     data = data.reset_index()
     
-    # Ensure we have the required columns
-    required_columns = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
-    
-    # Add Adj Close if it doesn't exist (use Close as fallback)
+    # Normalize column names to consistent casing but keep original names for output
+    cols_lower = {c.lower(): c for c in data.columns}
+
+    # Ensure 'Date' column exists (try to find a date-like column)
+    if 'date' not in cols_lower:
+        # look for any column name containing 'date'
+        date_col = None
+        for c in data.columns:
+            if 'date' in str(c).lower():
+                date_col = c
+                break
+        if date_col is not None:
+            data = data.rename(columns={date_col: 'Date'})
+        else:
+            # if no date-like column, keep existing columns and add empty Date
+            data['Date'] = pd.NaT
+
+    # Ensure 'Adj Close' exists, prefer existing 'Adj Close' then 'Close'
     if 'Adj Close' not in data.columns:
-        data['Adj Close'] = data['Close']
-    
-    # Reorder columns to match expected format
-    column_order = ['Date', 'Open', 'High', 'Low', 'Adj Close', 'Volume', 'Close']
-    data = data.reindex(columns=column_order)
-    
-    # Save to CSV
+        if 'Close' in data.columns:
+            data['Adj Close'] = data['Close']
+        else:
+            data['Adj Close'] = np.nan
+
+    # Desired output columns (exact names). We'll populate by name, not by positional ordering.
+    out_columns = ['Date', 'Open', 'High', 'Low', 'Adj Close', 'Volume', 'Close']
+
+    out_df = pd.DataFrame()
+    for col in out_columns:
+        if col in data.columns:
+            out_df[col] = data[col]
+        else:
+            # Try to find columns case-insensitively
+            match = None
+            for c in data.columns:
+                if c.lower() == col.lower():
+                    match = c
+                    break
+            if match is not None:
+                out_df[col] = data[match]
+            else:
+                # As a last resort, fill with NaN (or appropriate default)
+                if col == 'Date':
+                    out_df[col] = pd.NaT
+                else:
+                    out_df[col] = np.nan
+
+    # Save to CSV using exact column names above
     filename = f'stock_data/{stock_id}_{time_period}.csv'
-    data.to_csv(filename, index=False)
+    out_df.to_csv(filename, index=False)
     print(f"Data saved to {filename}")
 
 
