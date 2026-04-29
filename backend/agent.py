@@ -707,7 +707,11 @@ def gp_agent_node(state: AgentState) -> AgentState:
 
 
 def backtesting_agent_node(state: AgentState) -> AgentState:
-    """Backtesting agent: run backtest for best alpha found by gp_agent."""
+    """Backtesting agent: run backtest for best alpha found by gp_agent.
+    
+    Implements adaptive period selection starting from 3y, expanding to 5y and 10y 
+    if extreme values are detected.
+    """
     alpha_expr = state.get("best_alpha", "").strip()
     if not alpha_expr:
         output = "Backtest skipped: no best alpha from gp_agent"
@@ -715,43 +719,56 @@ def backtesting_agent_node(state: AgentState) -> AgentState:
         if state.get("label") == "alpha_search":
             output = run_alpha_backtest_tool.invoke({"alpha_name": alpha_expr})
         else:
-            first_output = run_backtest_tool.invoke({"alpha_expression": alpha_expr, "period": "10y"})
-            first_metrics = parse_backtest_metrics(first_output)
-
-            if first_metrics is None:
-                output = first_output
-            else:
+            # Start with 3-year backtest, expand if extreme values detected
+            periods = ["3y", "5y", "10y"]
+            all_outputs = []
+            final_period = None
+            
+            for period in periods:
+                current_output = run_backtest_tool.invoke(
+                    {"alpha_expression": alpha_expr, "period": period}
+                )
+                all_outputs.append((period, current_output))
+                current_metrics = parse_backtest_metrics(current_output)
+                
+                if current_metrics is None:
+                    output = current_output
+                    break
+                
+                # Check if current period has extreme values
                 decision_raw = adjust_backtest_period_tool.invoke(
                     {
-                        "sharpe": float(first_metrics.get("sharpe", 0.0)),
-                        "cum_returns": float(first_metrics.get("cum_returns", 0.0)),
-                        "max_drawdown_pct": float(first_metrics.get("max_drawdown_pct", 0.0)),
-                        "current_period": str(first_metrics.get("period", "10y")),
+                        "sharpe": float(current_metrics.get("sharpe", 0.0)),
+                        "cum_returns": float(current_metrics.get("cum_returns", 0.0)),
+                        "max_drawdown_pct": float(current_metrics.get("max_drawdown_pct", 0.0)),
+                        "current_period": period,
                     }
                 )
                 try:
                     decision = json.loads(decision_raw)
                 except Exception:
-                    decision = {"should_retest": False, "reason": "invalid_adjustment_payload"}
-
-                if decision.get("should_retest", False):
-                    next_period = decision.get("next_period", "5y")
-                    second_output = run_backtest_tool.invoke(
-                        {"alpha_expression": alpha_expr, "period": next_period}
-                    )
-                    output = (
-                        "Primary Backtest (10y):\n"
-                        f"{first_output}\n\n"
-                        f"Adjustment: {decision}\n\n"
-                        f"Retest ({next_period}):\n"
-                        f"{second_output}"
-                    )
+                    decision = {"extreme": False, "should_retest": False, "reason": "invalid_adjustment_payload"}
+                
+                # If no extreme values found, use this period as final result
+                if not decision.get("extreme", False):
+                    final_period = period
+                    # Build output with all tested periods and final decision
+                    output_parts = []
+                    for tested_period, tested_output in all_outputs:
+                        output_parts.append(f"Backtest ({tested_period}):\n{tested_output}")
+                    output_parts.append(f"\n✓ Final Period Selected: {final_period}")
+                    output_parts.append(f"Decision: No extreme values detected")
+                    output = "\n" + "="*60 + "\n".join(output_parts)
+                    break
                 else:
-                    output = (
-                        "Primary Backtest (10y):\n"
-                        f"{first_output}\n\n"
-                        f"Adjustment: {decision}"
-                    )
+                    # Continue to next period if extreme values detected
+                    if period == periods[-1]:  # Last period (10y)
+                        final_period = period
+                        output_parts = []
+                        for tested_period, tested_output in all_outputs:
+                            output_parts.append(f"Backtest ({tested_period}):\n{tested_output}")
+                        output_parts.append(f"\n⚠ Final Period Selected: {final_period} (extreme values detected even at 10y)")
+                        output = "\n" + "="*60 + "\n".join(output_parts)
 
     return {
         "user_message": state["user_message"],
