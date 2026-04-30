@@ -16,7 +16,7 @@ function App() {
   const [isSending, setIsSending] = useState(false);
 
   const placeholderTips = useMemo(
-    () => ["Summarize this file...", "Generate a test plan...", "Refactor this component..."],
+    () => ["過去五天成交量下降", "產生一個均值回歸策略的alpha",],
     []
   );
 
@@ -128,13 +128,13 @@ function App() {
         </section>
 
         <footer className="composer-wrap">
-          {/* <div className="tips" aria-hidden="true">
+          <div className="tips" aria-hidden="true">
             {placeholderTips.map((tip) => (
               <button key={tip} type="button" onClick={() => setDraft(tip)}>
                 {tip}
               </button>
             ))}
-          </div> */}
+          </div>
 
           <div className="composer">
             <textarea
