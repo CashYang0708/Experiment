@@ -48,8 +48,8 @@ SYSTEM_PROMPT = {
     "role": "system",
     "content": """
              Classify the user message as either:
-             - 'genetic_programming':  if the message is about genetic programming and contains terms like fitness function, gp
-             - 'alpha_search': if the message is about alpha your trading thoughts and market situation
+             - 'genetic_programming':  如果prompt是提到要生成alpha的邏輯, 或是提到 genetic programming相關的詞彙 (e.g. fitness function, crossover, mutation, evolutionary)
+             - 'alpha_search': 描述市場狀態或是alpha特徵的查詢, 但沒有明確提到genetic programming相關詞彙的
              '""",
 }
 
