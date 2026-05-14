@@ -43,7 +43,6 @@ GP_SEED = 42
 GP_CROSSOVER = 0.4
 GP_MUTATION = 0.4
 GP_FITNESS_FUNCTION = "pearson_fitness"
-APOLOGY_MESSAGE = "這個問題與 alpha mining 無關。"
 
 SYSTEM_PROMPT = {
     "role": "system",
@@ -66,40 +65,34 @@ class AgentState(TypedDict):
 
 
 def orchestrator_classify(message: str) -> str:
-    """Classify the user message into one of the supported labels.
-
-    If the prompt is unrelated to either supported field, return a
-    Chinese apology message so the workflow can terminate early.
-    """
     api_key = GEMINI_API_KEY
     if not api_key:
-        return APOLOGY_MESSAGE
+        return DEFAULT_LABEL
+
+    client = genai.Client(api_key=api_key)
+
+    prompt = (
+        f"System:\n{SYSTEM_PROMPT['content']}\n\n"
+        "Return ONLY JSON with this schema:\n"
+        '{"label":"genetic_programming"|"alpha_search"}\n\n'
+        f"User message:\n{message}"
+    )
 
     try:
-        client = genai.Client(api_key=api_key)
-
-        prompt = (
-            f"System:\n{SYSTEM_PROMPT['content']}\n\n"
-            "Return ONLY JSON with this schema:\n"
-            '{"label":"genetic_programming"|"alpha_search"|"unrelated"}\n\n'
-            f"User message:\n{message}"
-        )
-
         response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         text = (response.text or "").strip()
         parsed = json.loads(text)
         label = str(parsed.get("label", "")).strip()
         if label in {"genetic_programming", "alpha_search"}:
             return label
-        return APOLOGY_MESSAGE
+        return DEFAULT_LABEL
     except Exception:
-        return APOLOGY_MESSAGE
+        return DEFAULT_LABEL
 
 
 def orchestrator_agent_node(state: AgentState) -> AgentState:
     """Orchestrator agent: classify the message for downstream routing."""
     label = orchestrator_classify(state["user_message"])
-    evaluation_report = APOLOGY_MESSAGE if label == APOLOGY_MESSAGE else ""
     return {
         "user_message": state["user_message"],
         "label": label,
@@ -107,7 +100,7 @@ def orchestrator_agent_node(state: AgentState) -> AgentState:
         "gp_output": "",
         "best_alpha": "",
         "backtest_output": "",
-        "evaluation_report": evaluation_report,
+        "evaluation_report": "",
     }
 
 
