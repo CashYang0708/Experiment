@@ -16,7 +16,7 @@ function App() {
   const [isSending, setIsSending] = useState(false);
 
   const placeholderTips = useMemo(
-    () => ["過去五天成交量下降", "產生一個均值回歸策略的alpha",],
+    () => ["過去五天成交量下降", "產生一個alpha並使用rmse當作fitness function",],
     []
   );
 
