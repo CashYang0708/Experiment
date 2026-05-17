@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import sys
+from typing import Literal
 from typing import Optional
 from typing import TypedDict
 
@@ -34,7 +35,7 @@ from pydantic import ValidationError
 
 
 class ClassificationResult(BaseModel):
-    label: str
+    label: Literal["genetic_programming", "alpha_search", "unrelated"]
 
 
 # Optional: hardcode key if you do not want env vars.
@@ -57,6 +58,7 @@ SYSTEM_PROMPT = {
              Classify the user message as either:
              - 'genetic_programming':  如果prompt是提到要生成alpha的邏輯, 或是提到 genetic programming相關的詞彙 (e.g. fitness function, crossover, mutation, evolutionary)
              - 'alpha_search': 描述市場狀態, 但沒有明確提到genetic programming相關詞彙的
+             - 'unrelated': 與以上兩者無關
              '""",
 }
 
@@ -77,7 +79,19 @@ def orchestrator_classify(message: str) -> str:
     gp_hint = bool(
         re.search(r"\b(genetic programming|fitness function)\b", text)
     )
-    fallback_label = "genetic_programming" if gp_hint else DEFAULT_LABEL
+    alpha_hint = bool(
+        re.search(
+            r"\b(alpha|vwap|volume|returns|close|open|high|low|momentum|mean reversion|backtest)\b",
+            text,
+        )
+        or re.search(r"成交量|回測|量價|收盤|開盤|最高|最低|報酬|波動", message or "")
+    )
+    if gp_hint:
+        fallback_label = "genetic_programming"
+    elif alpha_hint:
+        fallback_label = "alpha_search"
+    else:
+        fallback_label = "unrelated"
 
     if not api_key:
         return fallback_label
@@ -90,7 +104,7 @@ def orchestrator_classify(message: str) -> str:
         config=GenerateContentConfig(
             system_instruction=[
                 "請分類以下使用者訊息，並且只回傳JSON格式的分類結果，不需要任何解釋。",
-                "genetic_programming: 如果訊息提到要生成alpha的邏輯, 或是提到 genetic programming相關的詞彙 (e.g. fitness function, crossover, mutation, evolutionary)\nalpha_search: 描述市場狀態, 但沒有明確提到genetic programming相關詞彙的。",
+                "genetic_programming: 如果訊息提到要生成alpha的邏輯, 或是提到 genetic programming相關的詞彙 (e.g. fitness function, crossover, mutation, evolutionary)\nalpha_search: 描述市場狀態, 但沒有明確提到genetic programming相關詞彙的。\nunrelated: 與以上兩者無關。",
             ],
             response_mime_type="application/json",
             response_schema=ClassificationResult,
@@ -102,10 +116,7 @@ def orchestrator_classify(message: str) -> str:
         if not raw_text:
             return fallback_label
         parsed = ClassificationResult.model_validate_json(raw_text)
-        label = parsed.label.strip()
-        if label in {"genetic_programming", "alpha_search"}:
-            return label
-        return fallback_label
+        return parsed.label.strip()
     except (ValidationError, ValueError, json.JSONDecodeError):
         return fallback_label
 
@@ -840,6 +851,8 @@ def orchestrator_route(state: AgentState) -> str:
         return "alpha_search_agent"
     if state["label"] == "genetic_programming":
         return "gp_agent"
+    if state["label"] == "unrelated":
+        return "end"
     return "end"
 
 
@@ -910,6 +923,9 @@ def main() -> None:
         }
     )
     print(result["label"])
+    if result["label"] == "unrelated":
+        print("請輸入跟alpha mining相關指令")
+        return
     if result.get("gp_output", ""):
         print("\n=== GP Result ===")
         print(result.get("gp_output", ""))

@@ -52,6 +52,9 @@ def evaluate(payload: EvaluateRequest) -> EvaluateResponse:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent workflow failed: {exc}") from exc
 
+    if result.get("label") == "unrelated":
+        return EvaluateResponse(evaluation_report="請輸入跟alpha mining相關指令")
+
     report = str(result.get("evaluation_report", "")).strip()
     if not report:
         raise HTTPException(status_code=500, detail="Evaluation report is empty")
