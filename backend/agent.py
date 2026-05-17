@@ -28,6 +28,13 @@ from typing import TypedDict
 from langgraph.graph import END, StateGraph
 from langchain_core.tools import tool
 from google import genai
+from google.genai.types import GenerateContentConfig
+from pydantic import BaseModel
+from pydantic import ValidationError
+
+
+class ClassificationResult(BaseModel):
+    label: str
 
 
 # Optional: hardcode key if you do not want env vars.
@@ -49,7 +56,7 @@ SYSTEM_PROMPT = {
     "content": """
              Classify the user message as either:
              - 'genetic_programming':  如果prompt是提到要生成alpha的邏輯, 或是提到 genetic programming相關的詞彙 (e.g. fitness function, crossover, mutation, evolutionary)
-             - 'alpha_search': 描述市場狀態或是alpha特徵的查詢, 但沒有明確提到genetic programming相關詞彙的
+             - 'alpha_search': 描述市場狀態, 但沒有明確提到genetic programming相關詞彙的
              '""",
 }
 
@@ -66,28 +73,42 @@ class AgentState(TypedDict):
 
 def orchestrator_classify(message: str) -> str:
     api_key = GEMINI_API_KEY
+    text = (message or "").lower()
+    gp_hint = bool(
+        re.search(r"\b(genetic programming|fitness function)\b", text)
+    )
+    fallback_label = "genetic_programming" if gp_hint else DEFAULT_LABEL
+
     if not api_key:
-        return DEFAULT_LABEL
+        return fallback_label
 
     client = genai.Client(api_key=api_key)
 
-    prompt = (
-        f"System:\n{SYSTEM_PROMPT['content']}\n\n"
-        "Return ONLY JSON with this schema:\n"
-        '{"label":"genetic_programming"|"alpha_search"}\n\n'
-        f"User message:\n{message}"
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=message,
+        config=GenerateContentConfig(
+            system_instruction=[
+                "請分類以下使用者訊息，並且只回傳JSON格式的分類結果，不需要任何解釋。",
+                "genetic_programming: 如果訊息提到要生成alpha的邏輯, 或是提到 genetic programming相關的詞彙 (e.g. fitness function, crossover, mutation, evolutionary)\nalpha_search: 描述市場狀態, 但沒有明確提到genetic programming相關詞彙的。",
+            ],
+            response_mime_type="application/json",
+            response_schema=ClassificationResult,
+        ),
     )
 
     try:
-        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-        text = (response.text or "").strip()
-        parsed = json.loads(text)
-        label = str(parsed.get("label", "")).strip()
+        raw_text = (response.text or "").strip()
+        if not raw_text:
+            return fallback_label
+        parsed = ClassificationResult.model_validate_json(raw_text)
+        label = parsed.label.strip()
         if label in {"genetic_programming", "alpha_search"}:
             return label
-        return DEFAULT_LABEL
-    except Exception:
-        return DEFAULT_LABEL
+        return fallback_label
+    except (ValidationError, ValueError, json.JSONDecodeError):
+        return fallback_label
+
 
 
 def orchestrator_agent_node(state: AgentState) -> AgentState:
