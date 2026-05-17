@@ -425,10 +425,21 @@ def parse_best_alpha(output: str) -> str:
 
 def parse_top_alpha_name(rag_output: str) -> str:
     """Extract top alpha name from rag output, e.g. alpha=Alpha#44."""
+    # Try to extract the alpha id first
     match = re.search(r"alpha\s*=\s*(Alpha#\d+)", rag_output, flags=re.IGNORECASE)
     if not match:
         return ""
-    return match.group(1)
+    alpha = match.group(1)
+
+    # If the retrieved document includes a Formula line, attach it to the alpha
+    # so callers can receive both the id and the expression, e.g. "Alpha#44(<expr>)".
+    formula_match = re.search(r"Formula:\s*(.+)", rag_output, flags=re.IGNORECASE)
+    if formula_match:
+        formula = formula_match.group(1).strip().strip('"').strip("'")
+        formula = formula.rstrip().rstrip(",")
+        return f"{alpha}({formula})"
+
+    return alpha
 
 
 def normalize_alpha101_name(alpha_name: str) -> str:
