@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import os
 import re
 import subprocess
@@ -71,7 +72,7 @@ RAG_COLLECTION = "alpha_factors"
 RAG_SOURCE_CSV = "./alpha_factors.csv"
 RAG_TOP_K = 1
 GP_NPOP = 20
-GP_SEED = 42
+GP_SEED = 55
 GP_CROSSOVER = 0.4
 GP_MUTATION = 0.4
 GP_FITNESS_FUNCTION = "pearson_fitness"
@@ -602,6 +603,8 @@ def should_continue_tuning(score_history: list[float], attempt: int) -> bool:
     prompt = (
         "You are a GP tuning controller. Decide if we should continue tuning.\n"
         "Do not use fixed score thresholds; use trend and stability reasoning only.\n"
+        "If the score has worsened over several attempts, it's often best to stop. \n"
+        "If the score in score_history is almost the same, you should return True.\n"
         "Return ONLY JSON with keys: continue (bool), reason (string).\n"
         f"Input: attempt={attempt}, score_history=[{trend_text}]"
     )
@@ -735,6 +738,7 @@ def gp_agent_node(state: AgentState) -> AgentState:
     crossover = GP_CROSSOVER
     mutation = GP_MUTATION
     score_history: list[float] = []
+    base_seed = random.randint(1, 1_000_000_000)
     tuning_log = [
         "GP Init",
         f"- alpha_expression: {alpha_expr}",
@@ -749,7 +753,7 @@ def gp_agent_node(state: AgentState) -> AgentState:
                 "alpha_expression": alpha_expr,
                 "npop": GP_NPOP,
                 "generations": 10,
-                "seed": GP_SEED + attempt - 1,
+                "seed": base_seed,
                 "crossover": crossover,
                 "mutation": mutation,
                 "fitness_function": fitness_name,
@@ -766,7 +770,9 @@ def gp_agent_node(state: AgentState) -> AgentState:
             break
 
         score_history.append(score)
-        if not should_continue_tuning(score_history, attempt):
+        flag = should_continue_tuning(score_history, attempt)
+        print(f"GP Tuning Decision at Attempt {attempt}: continue={flag}, score_history={[f'{s:.6f}' for s in score_history]}")
+        if not flag:
             break
 
         previous_score = score_history[-2] if len(score_history) >= 2 else score
@@ -848,7 +854,7 @@ def backtesting_agent_node(state: AgentState) -> AgentState:
                     decision = {"extreme": False, "should_retest": False, "reason": "invalid_adjustment_payload"}
                 
                 # If no extreme values found, use this period as final result
-                if not decision.get("extreme", False):
+                if not decision.get("extreme"):
                     final_period = period
                     # Build output with all tested periods and final decision
                     output_parts = []
