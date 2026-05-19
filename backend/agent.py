@@ -75,26 +75,9 @@ class AgentState(TypedDict):
 
 def orchestrator_classify(message: str) -> str:
     api_key = GEMINI_API_KEY
-    text = (message or "").lower()
-    gp_hint = bool(
-        re.search(r"\b(genetic programming|fitness function)\b", text)
-    )
-    alpha_hint = bool(
-        re.search(
-            r"\b(alpha|vwap|volume|returns|close|open|high|low|momentum|mean reversion|backtest)\b",
-            text,
-        )
-        or re.search(r"成交量|回測|量價|收盤|開盤|最高|最低|報酬|波動", message or "")
-    )
-    if gp_hint:
-        fallback_label = "genetic_programming"
-    elif alpha_hint:
-        fallback_label = "alpha_search"
-    else:
-        fallback_label = "unrelated"
 
     if not api_key:
-        return fallback_label
+        return 'unrelated'
 
     client = genai.Client(api_key=api_key)
 
