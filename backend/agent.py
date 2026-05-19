@@ -615,14 +615,15 @@ def generate_evaluation_report(state: AgentState) -> str:
         "3) 風險評估\n"
         "4) 建議\n",
         "5) 產出或搜尋到的的alpha表達式子\n",
-        "報告應保持實用性，避免臆測缺少的指標\n"
+        "報告應保持實用性，避免臆測缺少的指標\n",
+        "不需要有報告日期或是作者等資訊\n",
         "報告要用繁體中文產出\n\n"
         f"Payload:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 
     try:
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt, config=GenerateContentConfig(temperature=0.2))
         text = (response.text or "").strip()
         if text:
             return text
