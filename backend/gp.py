@@ -1,23 +1,30 @@
 import random
 import copy
-import os
 import numpy as np
-import pandas as pd
 import argparse
-import json
+import sys
 
 try:
-    import backend.fitness_function as external_fitness
-except ImportError:
-    try:
-        import fitness_function as external_fitness
-    except ImportError:
-        external_fitness = None
+    from backend.fitness_function import (
+        mean_absolute_error_fitness,
+        mse_fitness,
+        rmse_fitness,
+        pearson_fitness,
+        spearman_fitness,
+    )
+except ModuleNotFoundError:
+    from fitness_function import (
+        mean_absolute_error_fitness,
+        mse_fitness,
+        rmse_fitness,
+        pearson_fitness,
+        spearman_fitness,
+    )
 
 try:
-    from backend.backtest.executor import GpTemplate
-except Exception:
-    GpTemplate = None
+    from backend.stock_data import get_stock_data
+except ModuleNotFoundError:
+    from stock_data import get_stock_data
 
 def parse_alpha_expression(expr_str):
     """
@@ -99,10 +106,6 @@ class AlphaExpression:
         elif self.op == '/':
             right_val = self.right.evaluate(X)
             return self.left.evaluate(X) / (right_val + 1e-8)  # avoid division by zero
-        elif self.op == 'sign':
-            return np.sign(self.left.evaluate(X))
-        elif self.op == 'log':
-            return np.log(np.abs(self.left.evaluate(X)) + 1e-8)
         else:
             raise ValueError(f"Unknown operation: {self.op}")
     
@@ -114,10 +117,6 @@ class AlphaExpression:
             return str(self.value)
         elif self.op in ['+', '-', '*', '/']:
             return f"({self.left} {self.op} {self.right})"
-        elif self.op == 'sign':
-            return f"sign({self.left})"
-        elif self.op == 'log':
-            return f"log({self.left})"
         else:
             return str(self.op)
     
@@ -156,13 +155,13 @@ class GeneticProgramming:
                 return AlphaExpression('const', value=random.uniform(-1, 1))
         else:
             # Non-terminal node
-            if random.random() < 0.7:  # 70% chance for binary operations
-                op = random.choice(['+', '-', '*', '/'])
+            if random.random() < 0.8:  # 80% chance for binary operations
+                op = random.choice(['+', '-', '*', '/', 'sign'])
                 left = self.random_alpha(max_depth - 1)
                 right = self.random_alpha(max_depth - 1)
                 return AlphaExpression(op, left, right)
-            else:  # 30% chance for unary operations
-                op = random.choice(['log', 'sign'])
+            else:  # 20% chance for unary operations
+                op = 'log'
                 left = self.random_alpha(max_depth - 1)
                 return AlphaExpression(op, left)
 
@@ -238,245 +237,87 @@ class GeneticProgramming:
         return best_alpha, best_score, self.history
 
 
-def correlation_fitness(predictions, forward_return):
-    """Simple fitness by correlation between alpha signal and forward return."""
-    p = np.asarray(predictions)
-    r = np.asarray(forward_return)
-    if len(p) != len(r) or len(p) < 2:
-        return -np.inf
-    if np.std(p) < 1e-12 or np.std(r) < 1e-12:
-        return -np.inf
-    corr = np.corrcoef(p, r)[0, 1]
-    if np.isnan(corr):
-        return -np.inf
-    return float(corr)
+def _load_training_data(ticker: str, years: int) -> tuple[np.ndarray, np.ndarray]:
+    df = get_stock_data(ticker, years)
+    if hasattr(df, "columns") and isinstance(df.columns, np.ndarray) is False:
+        if hasattr(df.columns, "levels"):
+            df.columns = [col[0] for col in df.columns]
+
+    close_col = "Close" if "Close" in df.columns else "Adj Close"
+    needed = ["High", "Low", "Open", close_col, "Volume"]
+    missing = [col for col in needed if col not in df.columns]
+    if missing:
+        raise ValueError(f"Missing columns for GP data: {missing}")
+
+    X = np.column_stack(
+        [
+            df["High"].to_numpy(),
+            df["Low"].to_numpy(),
+            df["Open"].to_numpy(),
+            df[close_col].to_numpy(),
+            df["Volume"].to_numpy(),
+        ]
+    )
+    forward_return = df[close_col].pct_change().shift(-1).fillna(0.0).to_numpy()
+    if len(forward_return) > 1:
+        X = X[:-1]
+        forward_return = forward_return[:-1]
+
+    return X, forward_return
 
 
-def get_fitness_function(name):
-    """Resolve fitness function by name from local or external registry."""
-    local_registry = {
-        "correlation_fitness": correlation_fitness,
-        "pearson_fitness": correlation_fitness,
+def _resolve_fitness_fn(name: str):
+    mapping = {
+        "mean_absolute_error_fitness": mean_absolute_error_fitness,
+        "mse_fitness": mse_fitness,
+        "rmse_fitness": rmse_fitness,
+        "pearson_fitness": pearson_fitness,
+        "spearman_fitness": spearman_fitness,
     }
-
-    if name in local_registry:
-        return local_registry[name]
-
-    if external_fitness is not None and hasattr(external_fitness, name):
-        fn = getattr(external_fitness, name)
-        if callable(fn):
-            return fn
-
-    available = list(local_registry.keys())
-    if external_fitness is not None:
-        available.extend(
-            [
-                n
-                for n in dir(external_fitness)
-                if n.endswith("_fitness") and callable(getattr(external_fitness, n))
-            ]
-        )
-    available = sorted(set(available))
-    raise ValueError(f"Unknown fitness function: {name}. Available: {available}")
+    return mapping.get(name, pearson_fitness)
 
 
-def run_backtest_for_alpha(alpha_expression):
-    """Run backtest for best alpha expression via backtest/executor.py."""
-    if GpTemplate is None:
-        return {
-            "status": "skipped",
-            "reason": "backtest.executor.GpTemplate import failed",
-        }
-
-    try:
-        template = GpTemplate(alpha_expression)
-        result = template.run()
-        return {
-            "status": "ok",
-            "metrics": result,
-        }
-    except Exception as exc:
-        return {
-            "status": "failed",
-            "reason": str(exc),
-        }
-
-
-def run_gp_from_query(
-    query,
-    npop=20,
-    generations=5,
-    seed=42,
-    pcrossover=0.4,
-    ppoint=0.4,
-    fitness_name="pearson_fitness",
-    run_backtest=False,
-):
-    """Run a lightweight GP search and return summary text."""
-    if pcrossover < 0 or ppoint < 0 or pcrossover + ppoint > 1:
-        raise ValueError("pcrossover and ppoint must be >=0 and pcrossover + ppoint <= 1")
-
-    random.seed(seed)
-    np.random.seed(seed)
-
-    # Try to load real S&P500 10-year CSV from workspace stock_data.
-    csv_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "stock_data", "S&P500_10year.csv"))
-    base = None
-    forward_return = None
-
-    if os.path.exists(csv_path):
-        try:
-            df = pd.read_csv(csv_path)
-
-            def find_col(df, *names):
-                cols = {c.lower(): c for c in df.columns}
-                for name in names:
-                    key = name.lower()
-                    if key in cols:
-                        return cols[key]
-                # try contains
-                for c in df.columns:
-                    if any(k in c.lower() for k in names):
-                        return c
-                return None
-
-            high_col = find_col(df, 'high')
-            low_col = find_col(df, 'low')
-            open_col = find_col(df, 'open')
-            close_col = find_col(df, 'close', 'adj close', 'adj_close')
-            vol_col = find_col(df, 'volume', 'vol')
-
-            # If we couldn't find a close column, fall back to any numeric column
-            if close_col is None:
-                numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-                if numeric_cols:
-                    close_col = numeric_cols[-1]
-
-            if close_col is not None:
-                n = len(df)
-                base = np.zeros((n, 5), dtype=float)
-
-                # fill columns, falling back to close if a specific column is missing
-                close_vals = df[close_col].astype(float).to_numpy()
-                base[:, 3] = close_vals
-
-                if high_col in df.columns:
-                    base[:, 0] = df[high_col].astype(float).to_numpy()
-                else:
-                    base[:, 0] = close_vals
-
-                if low_col in df.columns:
-                    base[:, 1] = df[low_col].astype(float).to_numpy()
-                else:
-                    base[:, 1] = close_vals
-
-                if open_col in df.columns:
-                    base[:, 2] = df[open_col].astype(float).to_numpy()
-                else:
-                    base[:, 2] = close_vals
-
-                if vol_col in df.columns:
-                    try:
-                        base[:, 4] = df[vol_col].astype(float).to_numpy()
-                    except Exception:
-                        base[:, 4] = np.zeros(n)
-                else:
-                    base[:, 4] = np.zeros(n)
-
-                # forward return: next-period pct change of close, last value set to 0
-                forward_return = np.concatenate([ (close_vals[1:] / close_vals[:-1] - 1.0), np.array([0.0]) ])
-
-        except Exception:
-            base = None
-
-    # Fallback to synthetic data when CSV not available or parsing failed
-    if base is None:
-        n = 240
-        # Synthetic market-like matrix: [high, low, open, close, volume]
-        base = np.random.normal(0, 1, (n, 5))
-        base[:, 0] = np.abs(base[:, 0]) + 100  # high
-        base[:, 1] = base[:, 0] - np.abs(np.random.normal(0, 0.5, n))  # low
-        base[:, 2] = base[:, 1] + np.abs(np.random.normal(0, 0.3, n))  # open
-        base[:, 3] = base[:, 1] + np.abs(np.random.normal(0, 0.6, n))  # close
-        base[:, 4] = np.abs(np.random.normal(1e6, 2e5, n))  # volume
-
-        forward_return = np.random.normal(0, 0.02, n)
-
-    alpha_init = parse_alpha_expression("close")
-
-    fitness_fn = get_fitness_function(fitness_name)
-
-    gp = GeneticProgramming(
-        fitness_fn=fitness_fn,
-        npop=npop,
-        pcrossover=pcrossover,
-        ppoint=ppoint,
-        params_init={},
-        stock_data=base,
-        forward_return=forward_return,
-        alpha_init=alpha_init,
-        max_generations=generations,
-    )
-
-    best_alpha, best_score, history = gp.evolve()
-    backtest_text = ""
-    if run_backtest:
-        backtest_result = run_backtest_for_alpha(str(best_alpha))
-
-        if backtest_result.get("status") == "ok":
-            backtest_text = "\nBacktest: ok\n" + json.dumps(backtest_result.get("metrics", {}), ensure_ascii=False)
-        else:
-            backtest_text = (
-                f"\nBacktest: {backtest_result.get('status', 'unknown')}\n"
-                f"Reason: {backtest_result.get('reason', 'N/A')}"
-            )
-
-    return (
-        f"Query: {query}\n"
-        f"Fitness Function: {fitness_fn.__name__}\n"
-        f"Crossover: {pcrossover:.3f}\n"
-        f"Mutation: {ppoint:.3f}\n"
-        f"Best Alpha: {best_alpha}\n"
-        f"Best Fitness: {best_score:.6f}\n"
-        f"Generations: {generations}\n"
-        f"History Length: {len(history)}"
-        f"{backtest_text}"
-    )
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Run genetic programming alpha search")
-    parser.add_argument("--message", default="", help="Original user query text")
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run genetic programming")
+    parser.add_argument("--message", default="", help="User message (optional)")
+    parser.add_argument("--alpha-expression", required=True, help="Initial alpha expression")
+    parser.add_argument("--fitness-function", default="pearson_fitness", help="Fitness function name")
     parser.add_argument("--npop", type=int, default=20, help="Population size")
-    parser.add_argument("--generations", type=int, default=5, help="Max generations")
+    parser.add_argument("--generations", type=int, default=5, help="Number of generations")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--crossover", type=float, default=0.4, help="Crossover probability")
-    parser.add_argument("--mutation", type=float, default=0.4, help="Point mutation probability")
-    parser.add_argument(
-        "--fitness-function",
-        default="pearson_fitness",
-        help="Fitness function name (from fitness_function.py or local), e.g. pearson_fitness",
-    )
-    parser.add_argument(
-        "--run-backtest",
-        action="store_true",
-        help="Run backtest with backtest/executor.py after finding best alpha",
-    )
+    parser.add_argument("--crossover", type=float, default=0.4, help="Crossover rate")
+    parser.add_argument("--mutation", type=float, default=0.4, help="Mutation rate")
+    parser.add_argument("--ticker", default="^GSPC", help="Market index ticker")
+    parser.add_argument("--years", type=int, default=10, help="History length in years")
     args = parser.parse_args()
 
-    result = run_gp_from_query(
-        query=args.message,
-        npop=args.npop,
-        generations=args.generations,
-        seed=args.seed,
-        pcrossover=args.crossover,
-        ppoint=args.mutation,
-        fitness_name=args.fitness_function,
-        run_backtest=args.run_backtest,
-    )
-    print(result)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
+
+    try:
+        alpha_init = parse_alpha_expression(args.alpha_expression)
+        X, forward_return = _load_training_data(args.ticker, args.years)
+        fitness_fn = _resolve_fitness_fn(args.fitness_function)
+        gp = GeneticProgramming(
+            fitness_fn=fitness_fn,
+            npop=args.npop,
+            pcrossover=args.crossover,
+            ppoint=args.mutation,
+            params_init={},
+            stock_data=X,
+            forward_return=forward_return,
+            alpha_init=alpha_init,
+            max_generations=args.generations,
+        )
+        best_alpha, best_score, _history = gp.evolve()
+        print(f"Best Alpha: {best_alpha}")
+        print(f"Best Fitness: {best_score}")
+        return 0
+    except Exception as exc:
+        print(f"GP run failed: {exc}")
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
 

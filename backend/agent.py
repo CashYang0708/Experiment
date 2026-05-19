@@ -41,9 +41,25 @@ except ModuleNotFoundError:
     except ModuleNotFoundError:
         save_report = None
 
+try:
+    from backend.gp import parse_alpha_expression
+except ModuleNotFoundError:
+    from gp import parse_alpha_expression
+
 
 class ClassificationResult(BaseModel):
     label: Literal["genetic_programming", "alpha_search", "unrelated"]
+
+
+class GpInitSpec(BaseModel):
+    alpha_expression: str
+    fitness_function: Literal[
+        "mean_absolute_error_fitness",
+        "mse_fitness",
+        "rmse_fitness",
+        "pearson_fitness",
+        "spearman_fitness",
+    ]
 
 
 # Optional: hardcode key if you do not want env vars.
@@ -198,6 +214,7 @@ def rag_search_tool(user_message: str, top_k: int, db_path: str, collection: str
 @tool("gp_run")
 def gp_run_tool(
     user_message: str,
+    alpha_expression: str,
     npop: int,
     generations: int,
     seed: int,
@@ -212,6 +229,8 @@ def gp_run_tool(
         script_path,
         "--message",
         user_message,
+        "--alpha-expression",
+        alpha_expression,
         "--npop",
         str(npop),
         "--generations",
@@ -664,70 +683,73 @@ def alpha_search_agent_node(state: AgentState) -> AgentState:
 
 
 def gp_agent_node(state: AgentState) -> AgentState:
-    """GP agent: execute gp.py for genetic programming queries."""
-    attempt_generations = [1, 3, 5]
-    crossover = GP_CROSSOVER
-    mutation = GP_MUTATION
+    """GP agent: derive initial alpha/fitness from prompt and run gp.py."""
+    user_message = state.get("user_message", "")
 
-    best_output = ""
-    tuning_log = []
-    score_history: list[float] = []
-    idx = 1
+    def _select_gp_init(prompt: str) -> tuple[str, str]:
+        api_key = GEMINI_API_KEY.strip() or os.getenv("GEMINI_API_KEY", "").strip()
+        fallback_alpha = "(close - open)"
+        fallback_fitness = GP_FITNESS_FUNCTION
 
-    while True:
-        generations = attempt_generations[min(idx - 1, len(attempt_generations) - 1)]
-        output = gp_run_tool.invoke(
-            {
-                "user_message": state["user_message"],
-                "npop": GP_NPOP,
-                "generations": generations,
-                "seed": GP_SEED + idx - 1,
-                "crossover": crossover,
-                "mutation": mutation,
-                "fitness_function": GP_FITNESS_FUNCTION,
-            }
-        )
-        score = parse_best_fitness(output)
-        score_text = f"{score:.6f}" if score is not None else "N/A"
-        tuning_log.append(
-            f"Attempt {idx}: generations={generations}, crossover={crossover:.3f}, mutation={mutation:.3f}, best_fitness={score_text}"
-        )
-        best_output = output
-        if score is not None:
-            score_history.append(score)
+        if not api_key:
+            return fallback_alpha, fallback_fitness
 
-        if score is None:
-            break
-
-        if not should_continue_tuning(score_history, idx):
-            break
-
-        previous_score = score_history[-2] if len(score_history) >= 2 else score
-        adjust_raw = gp_adjust_params_tool.invoke(
-            {
-                "attempt": idx,
-                "current_crossover": crossover,
-                "current_mutation": mutation,
-                "current_score": score,
-                "previous_score": previous_score,
-            }
+        system_instruction = (
+            "You are a quant researcher developing formulaic alphas.\n"
+            "Extract one initial alpha expression and one fitness function name.\n"
+            "Return ONLY JSON with keys: alpha_expression, fitness_function.\n"
+            "alpha_expression must only use: open, high, low, close, volume and operators +,-,*,/.\n"
+            "Every operation must be wrapped in parentheses.\n"
+            "fitness_function must be one of: mean_absolute_error_fitness, mse_fitness, rmse_fitness, pearson_fitness, spearman_fitness."
         )
         try:
-            adjust = json.loads(adjust_raw)
-            crossover = float(adjust.get("crossover", crossover))
-            mutation = float(adjust.get("mutation", mutation))
-            reason = str(adjust.get("reason", "no_reason"))
-            tuning_log.append(
-                f"  Adjust -> crossover={crossover:.3f}, mutation={mutation:.3f}, reason={reason}"
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=GenerateContentConfig(
+                    system_instruction=[system_instruction],
+                    response_mime_type="application/json",
+                    response_schema=GpInitSpec,
+                ),
             )
+            raw_text = (response.text or "").strip()
+            if not raw_text:
+                return fallback_alpha, fallback_fitness
+            parsed = GpInitSpec.model_validate_json(raw_text)
+            return parsed.alpha_expression.strip(), parsed.fitness_function.strip()
         except Exception:
-            # Keep current params if tool payload is malformed.
-            tuning_log.append("  Adjust -> skipped (invalid tool payload)")
+            return fallback_alpha, fallback_fitness
 
-        idx += 1
+    alpha_expr, fitness_name = _select_gp_init(user_message)
+    try:
+        parse_alpha_expression(alpha_expr)
+    except Exception:
+        alpha_expr = "(close - open)"
 
-    output_with_log = "\n".join(tuning_log) + "\n\n" + best_output
-    best_alpha = parse_best_alpha(best_output)
+    if not fitness_name:
+        fitness_name = GP_FITNESS_FUNCTION
+
+    output = gp_run_tool.invoke(
+        {
+            "user_message": user_message,
+            "alpha_expression": alpha_expr,
+            "npop": GP_NPOP,
+            "generations": 5,
+            "seed": GP_SEED,
+            "crossover": GP_CROSSOVER,
+            "mutation": GP_MUTATION,
+            "fitness_function": fitness_name,
+        }
+    )
+
+    output_with_log = (
+        "GP Init\n"
+        f"- alpha_expression: {alpha_expr}\n"
+        f"- fitness_function: {fitness_name}\n\n"
+        f"{output}"
+    )
+    best_alpha = parse_best_alpha(output)
 
     return {
         "user_message": state["user_message"],
