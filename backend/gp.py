@@ -48,10 +48,13 @@ def parse_alpha_expression(expr_str):
     except ValueError:
         pass
 
-    # Check if it's a unary function call (e.g., log(x))
+    # Check if it's a unary function call (e.g., log(x), sign(x))
     if expr_str.startswith('log(') and expr_str.endswith(')'):
         inner_expr = expr_str[4:-1].strip()
         return AlphaExpression('log', left=parse_alpha_expression(inner_expr))
+    if expr_str.startswith('sign(') and expr_str.endswith(')'):
+        inner_expr = expr_str[5:-1].strip()
+        return AlphaExpression('sign', left=parse_alpha_expression(inner_expr))
     
     # Check if it's a parenthesized binary expression
     if expr_str.startswith('(') and expr_str.endswith(')'):
@@ -83,6 +86,9 @@ def parse_alpha_expression(expr_str):
                 left=parse_alpha_expression(left_expr),
                 right=parse_alpha_expression(right_expr)
             )
+
+        # No top-level operator; treat as a parenthesized unary/terminal expression.
+        return parse_alpha_expression(inner_expr.strip())
     
     # If we can't parse it, raise an error
     raise ValueError(f"Cannot parse expression: {expr_str}")
@@ -171,12 +177,12 @@ class GeneticProgramming:
         else:
             # Non-terminal node
             if random.random() < 0.8:  # 80% chance for binary operations
-                op = random.choice(['+', '-', '*', '/', 'sign'])
+                op = random.choice(['+', '-', '*', '/'])
                 left = self.random_alpha(max_depth - 1)
                 right = self.random_alpha(max_depth - 1)
                 return AlphaExpression(op, left, right)
             else:  # 20% chance for unary operations
-                op = 'log'
+                op = random.choice(['log', 'sign'])
                 left = self.random_alpha(max_depth - 1)
                 return AlphaExpression(op, left)
 

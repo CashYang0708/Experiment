@@ -695,10 +695,9 @@ def gp_agent_node(state: AgentState) -> AgentState:
             return fallback_alpha, fallback_fitness
 
         system_instruction = (
-            "You are a quant researcher developing formulaic alphas.\n"
             "Extract one initial alpha expression and one fitness function name.\n"
             "Return ONLY JSON with keys: alpha_expression, fitness_function.\n"
-            "alpha_expression must only use: open, high, low, close, volume and operators +,-,*,/.\n"
+            "alpha_expression should fulfiill user requirement and must only use: open, high, low, close, volume and operators +,-,*,/, log, sign.\n"
             "Every operation must be wrapped in parentheses.\n"
             "fitness_function must be one of: mean_absolute_error_fitness, mse_fitness, rmse_fitness, pearson_fitness, spearman_fitness."
         )
@@ -713,6 +712,7 @@ def gp_agent_node(state: AgentState) -> AgentState:
                     response_schema=GpInitSpec,
                 ),
             )
+            print("GP Init LLM response:", response.text)
             raw_text = (response.text or "").strip()
             if not raw_text:
                 return fallback_alpha, fallback_fitness
@@ -722,6 +722,7 @@ def gp_agent_node(state: AgentState) -> AgentState:
             return fallback_alpha, fallback_fitness
 
     alpha_expr, fitness_name = _select_gp_init(user_message)
+    print(f"GP Init: alpha_expression={alpha_expr}, fitness_function={fitness_name}")
     try:
         parse_alpha_expression(alpha_expr)
     except Exception:
