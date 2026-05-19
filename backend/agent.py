@@ -546,7 +546,6 @@ def _deterministic_evaluation_from_metrics(backtest_metrics: Optional[dict], rea
         [
             "## Backtest Data Availability",
             "- available",
-            f"- period: {period}",
             "## Performance Assessment",
             f"- sharpe: {sharpe}",
             f"- cum_returns: {cum_returns}",
