@@ -97,11 +97,11 @@ def orchestrator_classify(message: str) -> str:
     try:
         raw_text = (response.text or "").strip()
         if not raw_text:
-            return fallback_label
+            return 'unrelated'
         parsed = ClassificationResult.model_validate_json(raw_text)
         return parsed.label.strip()
     except (ValidationError, ValueError, json.JSONDecodeError):
-        return fallback_label
+        return 'unrelated'
 
 
 
