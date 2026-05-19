@@ -47,6 +47,11 @@ def parse_alpha_expression(expr_str):
         return AlphaExpression('const', value=value)
     except ValueError:
         pass
+
+    # Check if it's a unary function call (e.g., log(x))
+    if expr_str.startswith('log(') and expr_str.endswith(')'):
+        inner_expr = expr_str[4:-1].strip()
+        return AlphaExpression('log', left=parse_alpha_expression(inner_expr))
     
     # Check if it's a parenthesized binary expression
     if expr_str.startswith('(') and expr_str.endswith(')'):
@@ -106,6 +111,12 @@ class AlphaExpression:
         elif self.op == '/':
             right_val = self.right.evaluate(X)
             return self.left.evaluate(X) / (right_val + 1e-8)  # avoid division by zero
+        elif self.op == 'log':
+            left_val = self.left.evaluate(X)
+            return np.log(np.abs(left_val) + 1e-8)
+        elif self.op == 'sign':
+            left_val = self.left.evaluate(X)
+            return np.sign(left_val)
         else:
             raise ValueError(f"Unknown operation: {self.op}")
     
@@ -117,6 +128,10 @@ class AlphaExpression:
             return str(self.value)
         elif self.op in ['+', '-', '*', '/']:
             return f"({self.left} {self.op} {self.right})"
+        elif self.op == 'log':
+            return f"log({self.left})"
+        elif self.op == 'sign':
+            return f"sign({self.left})"
         else:
             return str(self.op)
     
