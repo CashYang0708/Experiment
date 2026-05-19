@@ -730,25 +730,66 @@ def gp_agent_node(state: AgentState) -> AgentState:
     if not fitness_name:
         fitness_name = GP_FITNESS_FUNCTION
 
-    output = gp_run_tool.invoke(
-        {
-            "user_message": user_message,
-            "alpha_expression": alpha_expr,
-            "npop": GP_NPOP,
-            "generations": 5,
-            "seed": GP_SEED,
-            "crossover": GP_CROSSOVER,
-            "mutation": GP_MUTATION,
-            "fitness_function": fitness_name,
-        }
-    )
+    max_attempts = 3
+    crossover = GP_CROSSOVER
+    mutation = GP_MUTATION
+    score_history: list[float] = []
+    tuning_log = [
+        "GP Init",
+        f"- alpha_expression: {alpha_expr}",
+        f"- fitness_function: {fitness_name}",
+    ]
 
-    output_with_log = (
-        "GP Init\n"
-        f"- alpha_expression: {alpha_expr}\n"
-        f"- fitness_function: {fitness_name}\n\n"
-        f"{output}"
-    )
+    output = ""
+    for attempt in range(1, max_attempts + 1):
+        output = gp_run_tool.invoke(
+            {
+                "user_message": user_message,
+                "alpha_expression": alpha_expr,
+                "npop": GP_NPOP,
+                "generations": 10,
+                "seed": GP_SEED + attempt - 1,
+                "crossover": crossover,
+                "mutation": mutation,
+                "fitness_function": fitness_name,
+            }
+        )
+
+        score = parse_best_fitness(output)
+        score_text = f"{score:.6f}" if score is not None else "N/A"
+        tuning_log.append(
+            f"Attempt {attempt}: crossover={crossover:.3f}, mutation={mutation:.3f}, best_fitness={score_text}"
+        )
+
+        if score is None:
+            break
+
+        score_history.append(score)
+        if not should_continue_tuning(score_history, attempt):
+            break
+
+        previous_score = score_history[-2] if len(score_history) >= 2 else score
+        adjust_raw = gp_adjust_params_tool.invoke(
+            {
+                "attempt": attempt,
+                "current_crossover": crossover,
+                "current_mutation": mutation,
+                "current_score": score,
+                "previous_score": previous_score,
+            }
+        )
+        try:
+            adjust = json.loads(adjust_raw)
+            crossover = float(adjust.get("crossover", crossover))
+            mutation = float(adjust.get("mutation", mutation))
+            reason = str(adjust.get("reason", "no_reason"))
+            tuning_log.append(
+                f"  Adjust -> crossover={crossover:.3f}, mutation={mutation:.3f}, reason={reason}"
+            )
+        except Exception:
+            tuning_log.append("  Adjust -> skipped (invalid tool payload)")
+
+    output_with_log = "\n".join(tuning_log) + "\n\n" + output
     best_alpha = parse_best_alpha(output)
 
     return {
