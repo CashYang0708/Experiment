@@ -11,6 +11,11 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 try:
+    from backend.mongo_store import save_report
+except ModuleNotFoundError:
+    from mongo_store import save_report
+
+try:
     # Works when launched from project root: uvicorn backend.main:app --reload
     from backend.agent import AgentState, build_multi_agent_graph
 except ModuleNotFoundError:
@@ -53,10 +58,14 @@ def evaluate(payload: EvaluateRequest) -> EvaluateResponse:
         raise HTTPException(status_code=500, detail=f"Agent workflow failed: {exc}") from exc
 
     if result.get("label") == "unrelated":
-        return EvaluateResponse(evaluation_report="請輸入跟alpha mining相關指令")
+        report = "請輸入跟alpha mining相關指令"
+        save_report(payload.query, report, "unrelated")
+        return EvaluateResponse(evaluation_report=report)
 
     report = str(result.get("evaluation_report", "")).strip()
     if not report:
         raise HTTPException(status_code=500, detail="Evaluation report is empty")
+
+    save_report(payload.query, report, str(result.get("label", "")))
 
     return EvaluateResponse(evaluation_report=report)

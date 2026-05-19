@@ -33,6 +33,14 @@ from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel
 from pydantic import ValidationError
 
+try:
+    from backend.mongo_store import save_report
+except ModuleNotFoundError:
+    try:
+        from mongo_store import save_report
+    except ModuleNotFoundError:
+        save_report = None
+
 
 class ClassificationResult(BaseModel):
     label: Literal["genetic_programming", "alpha_search", "unrelated"]
@@ -908,6 +916,8 @@ def main() -> None:
     print(result["label"])
     if result["label"] == "unrelated":
         print("請輸入跟alpha mining相關指令")
+        if save_report:
+            save_report(args.message, "請輸入跟alpha mining相關指令", "unrelated")
         return
     if result.get("gp_output", ""):
         print("\n=== GP Result ===")
@@ -916,6 +926,8 @@ def main() -> None:
         print(result.get("backtest_output", ""))
         print("\n=== Evaluation Report ===")
         print(result.get("evaluation_report", ""))
+        if save_report:
+            save_report(args.message, result.get("evaluation_report", ""), result.get("label", ""))
     elif result["label"] == "alpha_search":
         print("\n=== RAG Search Result ===")
         print(result.get("rag_output", ""))
@@ -923,6 +935,8 @@ def main() -> None:
         print(result.get("backtest_output", ""))
         print("\n=== Evaluation Report ===")
         print(result.get("evaluation_report", ""))
+        if save_report:
+            save_report(args.message, result.get("evaluation_report", ""), result.get("label", ""))
 
 
 if __name__ == "__main__":
