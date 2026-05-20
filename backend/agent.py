@@ -396,6 +396,7 @@ def gp_adjust_params_tool(
     current_crossover: float,
     current_mutation: float,
     current_score: float,
+    current_seed: int,
     previous_score: float,
 ) -> str:
     """Ask LLM to suggest next GP crossover/mutation from score trend.
@@ -406,6 +407,7 @@ def gp_adjust_params_tool(
     fallback_payload = {
         "crossover": round(current_crossover, 4),
         "mutation": round(current_mutation, 4),
+        "seed": current_seed,
         "reason": "llm_unavailable_keep_params",
         "attempt": attempt,
     }
@@ -416,17 +418,33 @@ def gp_adjust_params_tool(
     prompt = (
         "You are a GP hyperparameter tuner. Suggest next crossover/mutation based on recent score trend.\n"
         "Do not use fixed numeric thresholds. Use trend-based reasoning.\n"
-        "Return ONLY JSON with keys: crossover (float), mutation (float), reason (string).\n"
-        "Constraints: 0.05 <= crossover <= 0.9, 0.05 <= mutation <= 0.9, crossover+mutation <= 0.95.\n"
-        f"Input: attempt={attempt}, current_crossover={current_crossover}, current_mutation={current_mutation}, current_score={current_score}, previous_score={previous_score}."
+        "Return ONLY JSON with keys: crossover (float), mutation (float), seed (int), reason (string).\n"
+        "Constraints: 0.05 <= crossover <= 0.9, 0.05 <= mutation <= 0.9, crossover+mutation <= 0.95, 1<=seed<=100000.\n"
+        f"Input: attempt={attempt}, current_crossover={current_crossover}, current_mutation={current_mutation}, current_score={current_score}, current_seed={current_seed}, previous_score={previous_score}."
     )
+
+    def _extract_json(text: str) -> str:
+        cleaned = (text or "").strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            lines = lines[1:]
+            if lines and lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+        return cleaned
 
     try:
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-        obj = json.loads((response.text or "").strip())
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=GenerateContentConfig(response_mime_type="application/json"),
+        )
+        raw_text = _extract_json(response.text or "")
+        obj = json.loads(raw_text)
         next_crossover = float(obj.get("crossover", current_crossover))
         next_mutation = float(obj.get("mutation", current_mutation))
+        next_seed = int(obj.get("seed", current_seed))
         reason = str(obj.get("reason", "llm_adjustment"))
 
         # Enforce safe bounds and probability feasibility.
@@ -441,6 +459,7 @@ def gp_adjust_params_tool(
         payload = {
             "crossover": round(next_crossover, 4),
             "mutation": round(next_mutation, 4),
+            "seed": next_seed,
             "reason": reason,
             "attempt": attempt,
         }
@@ -813,6 +832,7 @@ def gp_agent_node(state: AgentState) -> AgentState:
                 "current_crossover": crossover,
                 "current_mutation": mutation,
                 "current_score": score,
+                "current_seed": base_seed,
                 "previous_score": previous_score,
             }
         )
@@ -820,9 +840,10 @@ def gp_agent_node(state: AgentState) -> AgentState:
             adjust = json.loads(adjust_raw)
             crossover = float(adjust.get("crossover", crossover))
             mutation = float(adjust.get("mutation", mutation))
+            base_seed = int(adjust.get("seed", base_seed))
             reason = str(adjust.get("reason", "no_reason"))
             tuning_log.append(
-                f"  Adjust -> crossover={crossover:.3f}, mutation={mutation:.3f}, reason={reason}"
+                f"  Adjust -> crossover={crossover:.3f}, mutation={mutation:.3f}, seed={base_seed}, reason={reason}"
             )
         except Exception:
             tuning_log.append("  Adjust -> skipped (invalid tool payload)")
