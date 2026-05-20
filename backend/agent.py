@@ -459,6 +459,16 @@ def parse_best_fitness(output: str) -> Optional[float]:
         return None
 
 
+def parse_gen_scores(output: str) -> list[float]:
+    scores: list[float] = []
+    for match in re.finditer(r"Gen\s+\d+:\s+Best fitness\s*=\s*([-+]?\d*\.?\d+)", output):
+        try:
+            scores.append(float(match.group(1)))
+        except ValueError:
+            continue
+    return scores
+
+
 def parse_best_alpha(output: str) -> str:
     match = re.search(r"Best Alpha:\s*(.+)", output)
     if not match:
@@ -601,18 +611,33 @@ def should_continue_tuning(score_history: list[float], attempt: int) -> bool:
 
     trend_text = ", ".join([f"{s:.6f}" for s in score_history]) if score_history else "N/A"
     prompt = (
-        "You are a GP tuning controller. Decide if we should continue tuning.\n"
+        "You are a GP tuning controller. Decide if we should continue tuning based on score_history.\n"
         "Do not use fixed score thresholds; use trend and stability reasoning only.\n"
-        "If the score has worsened over several attempts, it's often best to stop. \n"
-        "If the score in score_history is almost the same, you should return True.\n"
+        "If the score in score_history is almost the same, you should return True and continue tuning.\n"
         "Return ONLY JSON with keys: continue (bool), reason (string).\n"
         f"Input: attempt={attempt}, score_history=[{trend_text}]"
     )
 
+    def _extract_json(text: str) -> str:
+        cleaned = (text or "").strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            lines = lines[1:]
+            if lines and lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+        return cleaned
+
     try:
         client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
-        obj = json.loads((response.text or "").strip())
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=GenerateContentConfig(response_mime_type="application/json"),
+        )
+        print("Response for continue tuning:", response.text)
+        raw_text = _extract_json(response.text or "")
+        obj = json.loads(raw_text)
         return bool(obj.get("continue", False))
     except Exception:
         return False
@@ -734,7 +759,7 @@ def gp_agent_node(state: AgentState) -> AgentState:
     if not fitness_name:
         fitness_name = GP_FITNESS_FUNCTION
 
-    max_attempts = 3
+    max_attempts = 5
     crossover = GP_CROSSOVER
     mutation = GP_MUTATION
     score_history: list[float] = []
@@ -761,17 +786,23 @@ def gp_agent_node(state: AgentState) -> AgentState:
         )
 
         score = parse_best_fitness(output)
+        print("score from gp_run_tool:", score)
+        gen_scores = parse_gen_scores(output)
         score_text = f"{score:.6f}" if score is not None else "N/A"
         tuning_log.append(
             f"Attempt {attempt}: crossover={crossover:.3f}, mutation={mutation:.3f}, best_fitness={score_text}"
         )
+        if gen_scores:
+            gen_scores_text = ", ".join([f"{s:.6f}" for s in gen_scores])
+            tuning_log.append(f"Gen scores: {gen_scores_text}")
 
         if score is None:
             break
 
         score_history.append(score)
-        flag = should_continue_tuning(score_history, attempt)
-        print(f"GP Tuning Decision at Attempt {attempt}: continue={flag}, score_history={[f'{s:.6f}' for s in score_history]}")
+        tuning_scores = gen_scores if gen_scores else score_history
+        flag = should_continue_tuning(tuning_scores, attempt)
+        print(f"GP Tuning Decision at Attempt {attempt}: continue={flag}, score_history={[f'{s:.6f}' for s in tuning_scores]}")
         if not flag:
             break
 
