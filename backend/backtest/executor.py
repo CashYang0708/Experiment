@@ -212,18 +212,14 @@ class GpTemplate:
                 return default
 
         res = dict(
-            sharpe=_safe_float(results.get('sharpe')),
+            sharpe=_safe_float(results.get('sharpe')) if results.get('sharpe') is not None else 0.0,
             drawdowns=_safe_float(results.get('drawdowns').mean()) if results.get('drawdowns') is not None else 0.0,
-            max_drawdown=_safe_float(results.get('max_drawdown')),
-            max_drawdown_pct=_safe_float(results.get('max_drawdown_pct')),
-            max_drawdown_duration=_safe_float(results.get('max_drawdown_duration')),
+            max_drawdown=_safe_float(results.get('max_drawdown')) if results.get('max_drawdown') is not None else 0.0,
+            max_drawdown_pct=_safe_float(results.get('max_drawdown_pct')) if results.get('max_drawdown_pct') is not None else 0.0,
+            max_drawdown_duration=_safe_float(results.get('max_drawdown_duration')) if results.get('max_drawdown_duration') is not None else 0.0,
             equity=_safe_float(results.get('equity').mean()) if results.get('equity') is not None else 0.0,
             returns=_safe_float(results.get('returns').mean()) if results.get('returns') is not None else 0.0,
             cum_returns=_safe_float(results.get('cum_returns').mean()) if results.get('cum_returns') is not None else 0.0,
             period=self.period,
         )
         return res
-
-if __name__ == "__main__":
-    template = Template(AlphaModel_name='040')
-    print(template.run())
