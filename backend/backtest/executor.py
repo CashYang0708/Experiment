@@ -100,12 +100,6 @@ class Template:
             strategy_equity=strategy_backtest.get_equity_curve(),
             title='alpha' + self.AlphaModel_name
         )
-        result_dir = './backtest/result'
-        os.makedirs(result_dir, exist_ok=True)
-        result_path = f'{result_dir}/alpha{self.AlphaModel_name}.png'
-        tearsheet.plot_results(filename=result_path)
-        img = Image.open(result_path)
-        os.remove(result_path)
 
         equity_df = strategy_backtest.get_equity_curve()
         res = tearsheet.get_results(equity_df)
@@ -117,7 +111,6 @@ class Template:
                    equity=float(res['equity'].mean()),
                    returns=float(res['returns'].mean()),
                    cum_returns=float(res['cum_returns'].mean()),
-                   image = img,
                 )
         return res
 
@@ -203,7 +196,7 @@ class GpTemplate:
                    max_drawdown_duration=float(res['max_drawdown_duration']),
                    equity=float(res['equity'].mean()),
                    returns=float(res['returns'].mean()),
-               cum_returns=float(res['cum_returns'].mean()),
-               period=self.period,
-                )
+                   cum_returns=float(res['cum_returns'].mean()),
+                   period=self.period,
+            )
         return res
