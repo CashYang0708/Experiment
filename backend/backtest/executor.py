@@ -2,7 +2,6 @@ import os
 import pandas as pd
 import pytz
 import matplotlib
-from PIL import Image
 from typing import Dict
 try:
     from backend.stock_data import store_to_csv, get_stock_data
@@ -103,14 +102,14 @@ class Template:
 
         equity_df = strategy_backtest.get_equity_curve()
         res = tearsheet.get_results(equity_df)
-        res = dict(sharpe=float(res['sharpe']),
-                   drawdowns=float(res['drawdowns'].mean()),
-                   max_drawdown=float(res['max_drawdown']),
-                   max_drawdown_pct=float(res['max_drawdown_pct']),
-                   max_drawdown_duration=float(res['max_drawdown_duration']),
-                   equity=float(res['equity'].mean()),
-                   returns=float(res['returns'].mean()),
-                   cum_returns=float(res['cum_returns'].mean()),
+        res = dict(sharpe=float(res['sharpe']) if res['sharpe'] is not None else 0.0,
+                   drawdowns=float(res['drawdowns'].mean()) if res['drawdowns'] is not None else 0.0,
+                   max_drawdown=float(res['max_drawdown']) if res['max_drawdown'] is not None else 0.0,
+                   max_drawdown_pct=float(res['max_drawdown_pct']) if res['max_drawdown_pct'] is not None else 0.0,
+                   max_drawdown_duration=float(res['max_drawdown_duration']) if res['max_drawdown_duration'] is not None else 0.0,
+                   equity=float(res['equity'].mean()) if res['equity'] is not None else 0.0,
+                   returns=float(res['returns'].mean()) if res['returns'] is not None else 0.0,
+                   cum_returns=float(res['cum_returns'].mean()) if res['cum_returns'] is not None else 0.0,
                 )
         return res
 
@@ -189,14 +188,14 @@ class GpTemplate:
 
         equity_df = strategy_backtest.get_equity_curve()
         res = tearsheet.get_results(equity_df)
-        res = dict(sharpe=float(res['sharpe']),
-                   drawdowns=float(res['drawdowns'].mean()),
-                   max_drawdown=float(res['max_drawdown']),
-                   max_drawdown_pct=float(res['max_drawdown_pct']),
-                   max_drawdown_duration=float(res['max_drawdown_duration']),
-                   equity=float(res['equity'].mean()),
-                   returns=float(res['returns'].mean()),
-                   cum_returns=float(res['cum_returns'].mean()),
+        res = dict(sharpe=float(res['sharpe']) if res['sharpe'] is not None else 0.0,
+                   drawdowns=float(res['drawdowns'].mean()) if res['drawdowns'] is not None else 0.0,
+                   max_drawdown=float(res['max_drawdown']) if res['max_drawdown'] is not None else 0.0,
+                   max_drawdown_pct=float(res['max_drawdown_pct']) if res['max_drawdown_pct'] is not None else 0.0,
+                   max_drawdown_duration=float(res['max_drawdown_duration']) if res['max_drawdown_duration'] is not None else 0.0,
+                   equity=float(res['equity'].mean()) if res['equity'] is not None else 0.0,
+                   returns=float(res['returns'].mean()) if res['returns'] is not None else 0.0,
+                   cum_returns=float(res['cum_returns'].mean()) if res['cum_returns'] is not None else 0.0,
                    period=self.period,
             )
         return res
