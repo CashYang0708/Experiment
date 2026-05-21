@@ -225,11 +225,11 @@ body {
   padding: 0.75em 0.85em;
   overflow-x: auto;
   border-radius: 10px;
-  background: #1f2a2e;
+  background: var(--assistant);
 }
 
 .markdown-content pre code {
-  color: #f5f7f8;
+  color: var(--ink);
   background: transparent;
   padding: 0;
 }

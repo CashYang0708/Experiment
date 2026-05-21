@@ -1,10 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
 const starterMessages = [];
+
+const HARDCODED_COMMANDS = [
+  { id: "restart_worker", description: "本系統為alpha mining的系統架構，會有兩個agent處理不同的任務，alpha search agent以及GP agent，分別負責從現有的alpha資料庫中找尋符合市場情境的alpha以及根據你的交易想法生成新的alpha，找到或生成的alpha並經過回測驗證確認其有效性。當你對系統提出一個查詢時，系統會先分析你的查詢內容，判斷你是想要找尋現有的alpha還是想要生成新的alpha，然後將任務分配給相對應的agent來處理。", 
+    command: "Alpha_search Agent指令:過去五天成交量下降\nGP Agent指令:產生一個均值回歸的alpha並將rmse當作fitness function" },
+];
 
 function nowTime() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -92,6 +97,25 @@ function App() {
     }
   };
 
+  const opsInserted = useRef(false);
+  useEffect(() => {
+    // Guard to avoid double insertion in React.StrictMode (dev)
+    if (opsInserted.current) return;
+    opsInserted.current = true;
+
+    if (!HARDCODED_COMMANDS || HARDCODED_COMMANDS.length === 0) return;
+    const opsMessages = HARDCODED_COMMANDS.map((c, idx) => {
+      const cmdLines = (c.command || "").split("\n").map((l) => `**${l}**`).join("\n\n");
+      return {
+        id: `sys-${c.id}-${Date.now()}-${idx}`,
+        role: "assistant",
+        content: `${c.description} 以下為你可以參考的指令:\n\n${cmdLines}`,
+        time: nowTime(),
+      };
+    });
+    setMessages((prev) => [...opsMessages, ...prev]);
+  }, []);
+
   return (
     <div className="page-shell">
       <div className="ambient ambient-left" />
@@ -128,13 +152,13 @@ function App() {
         </section>
 
         <footer className="composer-wrap">
-          <div className="tips" aria-hidden="true">
+          {/* <div className="tips" aria-hidden="true">
             {placeholderTips.map((tip) => (
               <button key={tip} type="button" onClick={() => setDraft(tip)}>
                 {tip}
               </button>
             ))}
-          </div>
+          </div> */}
 
           <div className="composer">
             <textarea
