@@ -32,6 +32,8 @@ class EvaluateRequest(BaseModel):
 
 
 class EvaluateResponse(BaseModel):
+    label: str = ""
+    notice: str = ""
     evaluation_report: str
 
 
@@ -57,15 +59,25 @@ def evaluate(payload: EvaluateRequest) -> EvaluateResponse:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent workflow failed: {exc}") from exc
 
-    if result.get("label") == "unrelated":
+    label = str(result.get("label", ""))
+
+    if label == "unrelated":
         report = "請輸入跟alpha mining相關指令"
         save_report(payload.query, report, "unrelated")
-        return EvaluateResponse(evaluation_report=report)
+        return EvaluateResponse(label="unrelated", notice="", evaluation_report=report)
 
     report = str(result.get("evaluation_report", "")).strip()
     if not report:
         raise HTTPException(status_code=500, detail="Evaluation report is empty")
+    
+    # 針對不同label給予不同的notice提示，讓使用者知道接下來會發生什麼事
+    notice = ""
+    if label == "alpha_search":
+        notice = "即將執行RAG搜尋alpha內部因子庫找出符合市場情境的alpha並進行回測驗證與分析"
 
-    save_report(payload.query, report, str(result.get("label", "")))
+    if label == "genetic_programming":
+        notice = "即將執行基因演算法尋找alpha組合並進行回測驗證與分析"
 
-    return EvaluateResponse(evaluation_report=report)
+    save_report(payload.query, report, label)
+
+    return EvaluateResponse(label=label, notice=notice, evaluation_report=report)

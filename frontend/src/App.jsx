@@ -61,19 +61,33 @@ function App() {
       }
 
       const data = await response.json();
+      const notice = (data.notice || "").trim();
       const report = (data.evaluation_report || "").trim();
-      if (!report) {
+      if (!notice && !report) {
         throw new Error("Backend returned empty evaluation report");
+      }
+
+      const assistantMessages = [];
+      if (notice) {
+        assistantMessages.push({
+          id: Date.now() + 1,
+          role: "assistant",
+          content: notice,
+          time: nowTime(),
+        });
+      }
+      if (report) {
+        assistantMessages.push({
+          id: Date.now() + 2,
+          role: "assistant",
+          content: report,
+          time: nowTime(),
+        });
       }
 
       setMessages((prev) => [
         ...prev,
-        {
-          id: Date.now() + 1,
-          role: "assistant",
-          content: report,
-          time: nowTime(),
-        },
+        ...assistantMessages,
       ]);
     } catch (error) {
       setMessages((prev) => [
