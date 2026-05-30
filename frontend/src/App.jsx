@@ -6,13 +6,28 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
 const starterMessages = [];
 
-const HARDCODED_COMMANDS = [
-  { id: "restart_worker", description: "本系統為alpha mining的系統架構，會有兩個agent處理不同的任務，alpha search agent以及GP agent，分別負責從現有的alpha資料庫中找尋符合市場情境的alpha以及根據你的交易想法生成新的alpha，找到或生成的alpha並經過回測驗證確認其有效性。當你對系統提出一個查詢時，系統會先分析你的查詢內容，判斷你是想要找尋現有的alpha還是想要生成新的alpha，然後將任務分配給相對應的agent來處理。", 
-    command: "Alpha_search Agent指令:過去五天成交量下降\nGP Agent指令:產生一個均值回歸的alpha並將rmse當作fitness function" },
-];
 
 function nowTime() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function parseSystemHint(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const systemHint = typeof parsed.system_hint === "string" ? parsed.system_hint.trim() : "";
+    if (!systemHint) return null;
+    const label = typeof parsed.label === "string" ? parsed.label.trim() : "";
+    const suggestedExamples = Array.isArray(parsed.suggested_examples)
+      ? parsed.suggested_examples
+          .filter((example) => typeof example === "string" && example.trim())
+          .map((example) => example.trim())
+      : [];
+    return { label, systemHint, suggestedExamples };
+  } catch {
+    return null;
+  }
 }
 
 function App() {
@@ -62,8 +77,10 @@ function App() {
 
       const data = await response.json();
       const notice = (data.notice || "").trim();
+      const systemHint = (data.system_hint || "").trim();
+      const parsedSystemHint = parseSystemHint(systemHint);
       const report = (data.evaluation_report || "").trim();
-      if (!notice && !report) {
+      if (!notice && !systemHint && !report) {
         throw new Error("Backend returned empty evaluation report");
       }
 
@@ -76,9 +93,26 @@ function App() {
           time: nowTime(),
         });
       }
-      if (report) {
+      if (parsedSystemHint) {
         assistantMessages.push({
           id: Date.now() + 2,
+          role: "assistant",
+          content: "",
+          type: "system_hint",
+          payload: parsedSystemHint,
+          time: nowTime(),
+        });
+      } else if (systemHint && systemHint !== notice) {
+        assistantMessages.push({
+          id: Date.now() + 2,
+          role: "assistant",
+          content: systemHint,
+          time: nowTime(),
+        });
+      }
+      if (report && report !== systemHint) {
+        assistantMessages.push({
+          id: Date.now() + 3,
           role: "assistant",
           content: report,
           time: nowTime(),
@@ -111,24 +145,6 @@ function App() {
     }
   };
 
-  const opsInserted = useRef(false);
-  useEffect(() => {
-    // Guard to avoid double insertion in React.StrictMode (dev)
-    if (opsInserted.current) return;
-    opsInserted.current = true;
-
-    if (!HARDCODED_COMMANDS || HARDCODED_COMMANDS.length === 0) return;
-    const opsMessages = HARDCODED_COMMANDS.map((c, idx) => {
-      const cmdLines = (c.command || "").split("\n").map((l) => `**${l}**`).join("\n\n");
-      return {
-        id: `sys-${c.id}-${Date.now()}-${idx}`,
-        role: "assistant",
-        content: `${c.description} 以下為你可以參考的指令:\n\n${cmdLines}`,
-        time: nowTime(),
-      };
-    });
-    setMessages((prev) => [...opsMessages, ...prev]);
-  }, []);
 
   return (
     <div className="page-shell">
@@ -153,9 +169,31 @@ function App() {
               <div className="avatar">{message.role === "assistant" ? "AI" : "ME"}</div>
               <div className="bubble-content">
                 {message.role === "assistant" ? (
-                  <div className="markdown-content">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                  </div>
+                  message.type === "system_hint" ? (
+                    <div className="system-hint-card">
+                      <div className="system-hint-header">
+                        <span className="system-hint-title">系統操作提示</span>
+                        {message.payload?.label ? (
+                          <span className="system-hint-label">{message.payload.label}</span>
+                        ) : null}
+                      </div>
+                      <p className="system-hint-text">{message.payload?.systemHint}</p>
+                      {message.payload?.suggestedExamples?.length ? (
+                        <div className="system-hint-examples">
+                          <div className="system-hint-subtitle">建議範例</div>
+                          <ul>
+                            {message.payload.suggestedExamples.map((example, idx) => (
+                              <li key={`${message.id}-ex-${idx}`}>{example}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="markdown-content">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                    </div>
+                  )
                 ) : (
                   <p>{message.content}</p>
                 )}

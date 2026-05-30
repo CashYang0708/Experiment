@@ -17,10 +17,10 @@ except ModuleNotFoundError:
 
 try:
     # Works when launched from project root: uvicorn backend.main:app --reload
-    from backend.agent import AgentState, build_multi_agent_graph
+    from backend.agent import AgentState, build_multi_agent_graph, build_system_hint
 except ModuleNotFoundError:
     # Works when launched inside backend/: uvicorn main:app --reload
-    from agent import AgentState, build_multi_agent_graph
+    from agent import AgentState, build_multi_agent_graph, build_system_hint
 
 
 app = FastAPI(title="Quant Evaluation API", version="1.0.0")
@@ -34,6 +34,7 @@ class EvaluateRequest(BaseModel):
 class EvaluateResponse(BaseModel):
     label: str = ""
     notice: str = ""
+    system_hint: str = ""
     evaluation_report: str
 
 
@@ -62,9 +63,14 @@ def evaluate(payload: EvaluateRequest) -> EvaluateResponse:
     label = str(result.get("label", ""))
 
     if label == "unrelated":
-        report = "請輸入跟alpha mining相關指令"
-        save_report(payload.query, report, "unrelated")
-        return EvaluateResponse(label="unrelated", notice="", evaluation_report=report)
+        system_hint = build_system_hint(payload.query, label)
+        save_report(payload.query, system_hint, "unrelated")
+        return EvaluateResponse(
+            label="unrelated",
+            notice="",
+            system_hint=system_hint,
+            evaluation_report=system_hint,
+        )
 
     report = str(result.get("evaluation_report", "")).strip()
     if not report:

@@ -257,6 +257,65 @@ body {
   text-decoration: underline;
 }
 
+.system-hint-card {
+  border: 1px solid rgba(15, 138, 134, 0.16);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.system-hint-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.system-hint-title {
+  font: 700 0.92rem/1.2 "Space Grotesk", sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.system-hint-label {
+  font: 600 0.68rem/1 "IBM Plex Sans", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(15, 138, 134, 0.12);
+  color: #0c6f6b;
+}
+
+.system-hint-text {
+  margin: 0;
+  color: #2d3b41;
+  line-height: 1.5;
+}
+
+.system-hint-examples {
+  border-top: 1px dashed rgba(15, 138, 134, 0.2);
+  padding-top: 8px;
+}
+
+.system-hint-subtitle {
+  font: 600 0.78rem/1 "Space Grotesk", sans-serif;
+  color: #4b5a61;
+  margin-bottom: 6px;
+}
+
+.system-hint-examples ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #2d3b41;
+}
+
+.system-hint-examples li {
+  margin: 4px 0;
+}
+
 .bubble-content span {
   display: block;
   margin-top: 8px;

@@ -52,6 +52,12 @@ class ClassificationResult(BaseModel):
     label: Literal["genetic_programming", "alpha_search", "unrelated"]
 
 
+class SystemHintResult(BaseModel):
+    label: str
+    system_hint: str
+    suggested_examples: list[str]
+
+
 class GpInitSpec(BaseModel):
     alpha_expression: str
     fitness_function: Literal[
@@ -127,6 +133,60 @@ def orchestrator_classify(message: str) -> str:
         return parsed.label.strip()
     except (ValidationError, ValueError, json.JSONDecodeError):
         return 'unrelated'
+
+
+def build_system_hint(message: str, label: str) -> str:
+    """Generate system operation hints based on user message."""
+    api_key = GEMINI_API_KEY.strip() or os.getenv("GEMINI_API_KEY", "").strip()
+    fallback_payload = {
+        "label": label or "unrelated",
+        "system_hint": (
+            "目前僅支援 alpha mining 相關操作。"
+            "請使用 alpha_search 描述市場狀態，或 genetic_programming 生成 alpha/調整 fitness。"
+        ),
+        "suggested_examples": [
+            "想找適合震盪盤的 alpha",
+            "用 genetic programming 生成 alpha，fitness 用 pearson",
+        ],
+    }
+
+    if not api_key:
+        return json.dumps(fallback_payload, ensure_ascii=False)
+
+    prompt = (
+        "你是系統操作提示產生器。請根據使用者輸入，提供符合本系統能力範圍的操作指令。\n"
+        "系統支援兩類指令：\n"
+        "1) alpha_search：描述市場狀態或是alpha的特徵。\n"
+        "2) genetic_programming：透過genetic porgramming生成alpha因子，提到 GP/fitness/crossover/mutation 等關鍵字，或要求生成 alpha。\n"
+        "請輸出 ONLY JSON，鍵包含：label, system_hint, suggested_examples。\n"
+        "system_hint 請用繁體中文、正式簡潔，並且貼近使用者原意引導改寫。\n"
+        "suggested_examples 請給 2-3 個具體範例。\n"
+        f"使用者輸入：{message}\n"
+        f"既有分類：{label}"
+    )
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=SystemHintResult,
+            ),
+        )
+        raw_text = (response.text or "").strip()
+        if not raw_text:
+            return json.dumps(fallback_payload, ensure_ascii=False)
+        parsed = SystemHintResult.model_validate_json(raw_text)
+        payload = {
+            "label": parsed.label or label,
+            "system_hint": parsed.system_hint.strip(),
+            "suggested_examples": parsed.suggested_examples,
+        }
+        return json.dumps(payload, ensure_ascii=False)
+    except Exception:
+        return json.dumps(fallback_payload, ensure_ascii=False)
 
 
 
@@ -1037,9 +1097,10 @@ def main() -> None:
     )
     print(result["label"])
     if result["label"] == "unrelated":
-        print("請輸入跟alpha mining相關指令")
+        system_hint = build_system_hint(args.message, result.get("label", "unrelated"))
+        print(system_hint)
         if save_report:
-            save_report(args.message, "請輸入跟alpha mining相關指令", "unrelated")
+            save_report(args.message, system_hint, "unrelated")
         return
     if result.get("gp_output", ""):
         print("\n=== GP Result ===")
